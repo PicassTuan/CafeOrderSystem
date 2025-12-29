@@ -1,15 +1,17 @@
 import { saveMenuToDB, listenForMenu, sendOrderToDB, listenForOrders, updateOrderStatus, deleteOrder } from './firebase-service.js';
 
 // --- CẤU HÌNH ---
-const BANK_QR_URL = "https://img.vietqr.io/image/MB-0349315099-compact.png"; // Thay link ảnh QR của bạn
+const BANK_QR_URL = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
 
 // --- BIẾN TOÀN CỤC ---
 let MENU_DATA = [];
-let cart = {}; // Cart local: { "uniqueKey": { item:..., qty:1, ... } }
+let cart = {}; 
 let dbOrders = []; 
 let currentTable = "Mang Về";
 let currentCategory = "ALL";
 let currentSearch = "";
+let currentItemForModal = null; // Biến tạm cho modal size
+let splitSelectedItems = []; // Biến tạm cho tách bill
 
 const CATEGORIES = [
     { code: "ALL", name: "Tất cả" }, { code: "TS", name: "Trà sữa" },
@@ -33,17 +35,20 @@ document.addEventListener("DOMContentLoaded", () => {
         dbOrders = orders;
         if (view === 'bep') initKitchenView(orders);
         if (view === 'thungan') initCashierView(orders);
-        // Nếu đang mở giỏ hàng thì update lại để thấy trạng thái đơn cũ
+        // Nếu đang mở giỏ hàng thì update lại realtime
         if (!view && !document.getElementById('cart-modal').classList.contains('hidden')) {
             openCartDetails();
         }
-        // Update lại thanh bottom bar để hiển thị đúng tổng tiền (bao gồm đơn cũ nếu muốn)
         if(!view) updateBottomBar();
     });
 
     if (!view) initCustomerView();
     if (view === 'bep') document.getElementById('view-kitchen').classList.remove('hidden');
     if (view === 'thungan') document.getElementById('view-cashier').classList.remove('hidden');
+
+    // Sự kiện upload file excel cho thu ngân
+    const uploadInput = document.getElementById('cashier-upload-excel');
+    if(uploadInput) uploadInput.addEventListener('change', handleFileUpload);
 
     const searchInput = document.getElementById('search-input');
     if(searchInput) searchInput.addEventListener('input', (e) => {
@@ -56,7 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
 function initCustomerView() {
     document.getElementById('view-customer').classList.remove('hidden');
-    document.getElementById('display-table').innerText = currentTable;
+    // document.getElementById('display-table').innerText = currentTable; // (Đã có logic updateBottomBar lo)
 }
 
 function renderCategories() {
@@ -82,28 +87,19 @@ function renderMenu() {
     });
 
     filtered.forEach(item => {
-        // 1. Tính tổng số lượng món này đang có trong giỏ (Local Cart)
-        // Vì cart lưu theo uniqueKey, ta phải lặp qua để cộng dồn
+        // Tính số lượng trong giỏ (Local)
         let currentQty = 0;
         Object.values(cart).forEach(order => {
-            if (order.item.id === item.id && order.size === 'M') { // Mặc định tính size M cho nút ngoài
-                currentQty += order.qty;
-            }
+            if (order.item.id === item.id && order.size === 'M') currentQty += order.qty;
         });
 
-        // 2. Xác định giao diện nút bấm
         let btnHtml = "";
-        
         if (item.hasMultiSize) {
-            // Món 2 Size: Luôn hiện nút "Thêm" (hoặc "Chọn size")
             btnHtml = `<button class="btn-add-cart" onclick="openMultiSizeModal(${item.id})">Thêm</button>`;
         } else {
-            // Món 1 Size: Logic chuyển đổi nút
             if (currentQty === 0) {
-                // Chưa có: Hiện nút Thêm
                 btnHtml = `<button class="btn-add-cart" onclick="addToCart(${item.id})">Thêm</button>`;
             } else {
-                // Đã có: Hiện bộ đếm +/-
                 btnHtml = `
                     <div class="qty-control-inline">
                         <button onclick="removeRecentItem(${item.id})">-</button>
@@ -123,91 +119,70 @@ function renderMenu() {
                     <span class="item-price">${parseInt(item.GiaM).toLocaleString()}đ</span>
                     ${btnHtml}
                 </div>
-            </div>
-        `;
+            </div>`;
         container.appendChild(div);
     });
     updateBottomBar();
 }
 
-// --- HÀM THÊM VÀO GIỎ (Tạo dòng mới) ---
-window.addToCart = function(id) {
+function addToCart(id) {
     const item = MENU_DATA.find(i => i.id == id);
-    // Tạo ID duy nhất để tách dòng (cho phép chọn topping riêng sau này)
     const uniqueKey = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
     cart[uniqueKey] = { 
-        item: item, 
-        size: 'M', 
-        qty: 1, 
-        price: item.GiaM, 
-        note: '', 
-        toppings: [], 
-        timestamp: Date.now() 
+        item: item, size: 'M', qty: 1, price: item.GiaM, 
+        note: '', toppings: [], timestamp: Date.now() 
     };
-    
-    // Vẽ lại menu để cập nhật số lượng nút bấm
     renderMenu();
     updateBottomBar();
 }
 
-// --- HÀM GIẢM SỐ LƯỢNG (Xóa dòng mới nhất của món đó) ---
-window.removeRecentItem = function(itemId) {
-    // Tìm các key trong giỏ hàng khớp với itemId này
+function removeRecentItem(itemId) {
     const keys = Object.keys(cart).filter(k => cart[k].item.id === itemId && cart[k].size === 'M');
-    
     if (keys.length > 0) {
-        // Sắp xếp để lấy cái mới nhất (dựa vào timestamp hoặc thứ tự key)
-        // Ở đây lấy cái cuối cùng tìm thấy
         const keyToRemove = keys[keys.length - 1];
         delete cart[keyToRemove];
     }
-    
     renderMenu();
     updateBottomBar();
 }
 
-// --- LOGIC POPUP SIZE ---
-window.openMultiSizeModal = function(id) {
+function openMultiSizeModal(id) {
     const item = MENU_DATA.find(i => i.id == id);
     document.getElementById('modal-title').innerText = item.TenMon;
     document.getElementById('modal-desc').innerText = item.MoTa;
     document.getElementById('modal-img').src = item.img;
-    document.getElementById('qty-M').innerText = "0"; // Reset visual
-    document.getElementById('qty-L').innerText = "0"; // Reset visual
-    window.currentItemForModal = item;
+    document.getElementById('qty-M').innerText = "0";
+    document.getElementById('qty-L').innerText = "0";
+    currentItemForModal = item;
     document.getElementById('size-modal').classList.remove('hidden');
 }
 
-window.updateModalQty = function(size, delta) {
-    if (delta > 0 && window.currentItemForModal) {
-        const item = window.currentItemForModal;
+function updateModalQty(size, delta) {
+    if (delta > 0 && currentItemForModal) {
+        const item = currentItemForModal;
         const price = size === 'M' ? item.GiaM : item.GiaL;
         const uniqueKey = `local_${Date.now()}_${Math.random()}`;
         
         cart[uniqueKey] = {
-            item: item, size: size, qty: 1, price: price, note: '', toppings: [],
-            timestamp: Date.now()
+            item: item, size: size, qty: 1, price: price, note: '', toppings: [], timestamp: Date.now()
         };
         updateBottomBar();
         alert(`Đã thêm 1 ${item.TenMon} (${size})`);
     }
 }
 
-// --- CẬP NHẬT THANH BOTTOM ---
 function updateBottomBar() {
     let count = 0; let total = 0;
-
-    // 1. Tính từ Giỏ hàng Local (Chưa gửi)
+    // Tổng cart local
     Object.values(cart).forEach(order => {
         count += order.qty;
         total += (order.price * order.qty);
         order.toppings.forEach(tp => total += tp.price);
     });
-
-    // 2. Tính từ Đơn đã gọi (DB) - Nếu bạn muốn hiện tổng tiền cả bữa ăn
+    // Tổng đã gọi (DB) - hiển thị tổng cả bàn
     const myTableOrders = dbOrders.filter(o => o.table == currentTable && o.status !== 'split_paid');
     myTableOrders.forEach(o => {
+        if(o.items[0]?.name.includes("Yêu cầu TT")) return;
         o.items.forEach(i => {
             count += i.qty;
             total += (i.price * i.qty);
@@ -215,21 +190,23 @@ function updateBottomBar() {
         });
     });
 
+    document.getElementById('display-table').innerText = currentTable;
     document.getElementById('total-count').innerText = count;
     document.getElementById('total-price').innerText = total.toLocaleString() + "đ";
 }
 
-// --- LOGIC CHI TIẾT GIỎ HÀNG ---
-window.openCartDetails = function() {
+// --- GIỎ HÀNG CHI TIẾT ---
+function openCartDetails() {
     const list = document.getElementById('cart-items-list');
     list.innerHTML = "";
     
-    // 1. Món ĐÃ GỌI (Lịch sử)
+    // 1. Render Món ĐÃ GỌI
     const historyOrders = dbOrders.filter(o => o.table == currentTable).sort((a,b) => b.timestamp - a.timestamp);
     historyOrders.forEach(batch => {
-        if (batch.status === 'split_paid') return; 
+        if (batch.status === 'split_paid') return;
+        if (batch.items[0]?.name.includes("Yêu cầu TT")) return; // Ẩn đơn yêu cầu thanh toán
+
         const timeStr = new Date(batch.timestamp).toLocaleTimeString();
-        
         list.innerHTML += `<div class="time-divider">Giờ gọi: ${timeStr} <span class="badge-status bg-ordered">Đã gọi</span></div>`;
         
         batch.items.forEach(item => {
@@ -246,7 +223,7 @@ window.openCartDetails = function() {
         });
     });
 
-    // 2. Món CHƯA GỌI (Local Cart)
+    // 2. Render Món CHƯA GỌI
     if (Object.keys(cart).length > 0) {
         list.innerHTML += `<div class="time-divider">Hiện tại <span class="badge-status bg-draft">Chưa gọi</span></div>`;
         
@@ -272,20 +249,22 @@ window.openCartDetails = function() {
         });
     }
 
-    // Nút footer
+    // Logic nút Footer
     const hasLocal = Object.keys(cart).length > 0;
     const hasHistory = historyOrders.length > 0;
+    
     document.getElementById('btn-send-order').disabled = !hasLocal;
     
-    // Logic nút thanh toán: Chỉ sáng khi KHÔNG còn món nào chưa gửi (đã gửi hết) VÀ có lịch sử
-    const canPay = !hasLocal && hasHistory;
+    // Nút chức năng chỉ sáng khi: KHÔNG CÓ món mới VÀ ĐÃ CÓ lịch sử gọi
+    const canAction = !hasLocal && hasHistory;
     ['btn-bill', 'btn-split', 'btn-pay'].forEach(id => {
         const btn = document.getElementById(id);
-        btn.disabled = !canPay;
-        if(canPay) {
+        if(canAction) {
+            btn.disabled = false;
             btn.classList.remove('disabled-action', 'btn-outline-secondary');
             btn.classList.add('btn-primary');
         } else {
+            btn.disabled = true;
             btn.classList.add('disabled-action', 'btn-outline-secondary');
             btn.classList.remove('btn-primary');
         }
@@ -294,57 +273,48 @@ window.openCartDetails = function() {
     document.getElementById('cart-modal').classList.remove('hidden');
 }
 
-window.closeCartDetails = function() { document.getElementById('cart-modal').classList.add('hidden'); }
+function closeCartDetails() { document.getElementById('cart-modal').classList.add('hidden'); }
 
-window.changeCartQty = function(key, delta) {
+function changeCartQty(key, delta) {
     if (cart[key]) {
         cart[key].qty += delta;
         if (cart[key].qty <= 0) delete cart[key];
-        renderMenu(); // Cập nhật lại nút bên ngoài
-        updateBottomBar();
-        openCartDetails();
+        renderMenu(); updateBottomBar(); openCartDetails();
     }
 }
-window.updateNote = function(key, val) { if(cart[key]) cart[key].note = val; }
-window.removeTopping = function(key, tpId) {
+function updateNote(key, val) { if(cart[key]) cart[key].note = val; }
+function removeTopping(key, tpId) {
     cart[key].toppings = cart[key].toppings.filter(t => t.id !== tpId);
     updateBottomBar(); openCartDetails();
 }
-
-window.showToppingSelector = function(key) {
+function showToppingSelector(key) {
     const tps = MENU_DATA.filter(i => i.PhanLoai === 'TP');
     const html = tps.map(t => `<li class="list-group-item d-flex justify-content-between" onclick="selectTopping('${key}',${t.id})"><span>${t.TenMon}</span> <b>+${t.GiaM}</b></li>`).join('');
     document.getElementById('cart-items-list').innerHTML = `<div class="bg-white p-3 rounded"><h5>Chọn Topping</h5><ul class="list-group">${html}</ul><button class="btn btn-secondary w-100 mt-2" onclick="openCartDetails()">Quay lại</button></div>`;
 }
-window.selectTopping = function(key, tId) {
+function selectTopping(key, tId) {
     const t = MENU_DATA.find(i => i.id == tId);
     cart[key].toppings.push({ id: t.id, name: t.TenMon, price: t.GiaM });
     updateBottomBar(); openCartDetails();
 }
 
-window.submitOrder = function() {
+function submitOrder() {
     if(confirm("Gửi món xuống bếp?")) {
         const items = Object.values(cart).map(c => ({
             name: c.item.TenMon, size: c.size, qty: c.qty, price: c.price,
             note: c.note, toppings: c.toppings
         }));
-        
         let total = 0; items.forEach(i => { total += (i.price * i.qty); if(i.toppings) i.toppings.forEach(t => total += t.price); });
         
-        // Gửi status = 'moi'
         sendOrderToDB(currentTable, items, 0, total);
-        
         cart = {}; 
         alert("Gọi món thành công!");
-        renderMenu(); // Reset nút
-        updateBottomBar();
-        openCartDetails(); // Refresh modal
+        renderMenu(); updateBottomBar(); openCartDetails();
     }
 }
 
-// --- LOGIC SPLIT BILL ---
-let splitSelectedItems = []; 
-window.openSplitBillModal = function() {
+// --- THANH TOÁN RIÊNG ---
+function openSplitBillModal() {
     const list = document.getElementById('split-items-list');
     list.innerHTML = "";
     splitSelectedItems = [];
@@ -352,6 +322,7 @@ window.openSplitBillModal = function() {
     
     let index = 0;
     orders.forEach(batch => {
+        if(batch.items[0]?.name.includes("Yêu cầu TT")) return;
         batch.items.forEach(item => {
             const itemTotal = (item.price * item.qty) + (item.toppings ? item.toppings.reduce((a,b)=>a+b.price,0) : 0);
             const splitId = `${batch.key}_${index}`;
@@ -370,16 +341,14 @@ window.openSplitBillModal = function() {
     document.getElementById('split-total').innerText = "0đ";
     document.getElementById('split-modal').classList.remove('hidden');
 }
-
-window.toggleSplitItem = function(id, price, name, batchKey) {
+function toggleSplitItem(id, price, name, batchKey) {
     const chk = document.getElementById(`chk_${id}`);
     if(chk.checked) splitSelectedItems.push({ id, price, name, batchKey });
     else splitSelectedItems = splitSelectedItems.filter(i => i.id !== id);
     const total = splitSelectedItems.reduce((a,b) => a + b.price, 0);
     document.getElementById('split-total').innerText = total.toLocaleString() + "đ";
 }
-
-window.proceedSplitPayment = function() {
+function proceedSplitPayment() {
     if(splitSelectedItems.length === 0) { alert("Chưa chọn món nào!"); return; }
     const total = splitSelectedItems.reduce((a,b) => a + b.price, 0);
     document.getElementById('pay-amount').innerText = total.toLocaleString() + "đ";
@@ -388,46 +357,50 @@ window.proceedSplitPayment = function() {
     document.getElementById('qr-display').classList.add('hidden');
     document.getElementById('cash-display').classList.add('hidden');
 }
-
-window.showQR = function() {
+function showQR() {
     document.getElementById('qr-display').classList.remove('hidden');
     document.getElementById('cash-display').classList.add('hidden');
     document.getElementById('qr-img').src = BANK_QR_URL;
     document.getElementById('qr-desc').innerText = `ND: Bàn ${currentTable}`;
 }
-window.showCashInstruction = function() {
+function showCashInstruction() {
     document.getElementById('qr-display').classList.add('hidden');
     document.getElementById('cash-display').classList.remove('hidden');
 }
-
-window.confirmTransfer = function() {
+function confirmTransfer() {
     if(confirm("Xác nhận đã chuyển khoản?")) {
         const total = splitSelectedItems.reduce((a,b) => a + b.price, 0);
-        // Gửi request đặc biệt
         const reqData = {
             table: currentTable,
             items: [{ name: "Yêu cầu TT Riêng ("+splitSelectedItems.length+" món)", size: "", qty: 1, price: total }],
             totalPrice: total,
-            status: 'payment_request', // Cờ hiệu
+            status: 'payment_request',
             timestamp: Date.now()
         };
-        // Dùng trick: Gửi qua kênh orders nhưng status khác
-        // Cần đảm bảo firebase-service export hàm push hoặc dùng sendOrderToDB với tham số tùy chỉnh
-        // Ở đây ta dùng hàm sendOrderToDB và sửa status sau hoặc thêm status vào param hàm đó
-        // Cách nhanh nhất: Gọi sendOrderToDB nhưng ghi đè logic ở server hoặc...
-        // Tốt nhất: Gọi hàm push trực tiếp từ firebase-service nếu đã export.
-        // Giả sử sendOrderToDB nhận tham số status thì tốt, nhưng hàm cũ fix cứng 'moi'.
-        // Ta dùng cách: sendOrderToDB bình thường, tên món đặc biệt.
-        sendOrderToDB(currentTable, reqData.items, 0, total);
+        // Gửi qua hàm sendOrderToDB nhưng ghi đè status trong object (nếu hàm sendOrderToDB hỗ trợ, hoặc dùng push trực tiếp)
+        // Vì hàm sendOrderToDB mặc định set status='moi', nên ở đây ta gọi xong sẽ update lại ngay hoặc sửa hàm sendOrderToDB
+        // Cách nhanh: Import { push, ref, db } và gọi trực tiếp
+        // Ở đây tôi dùng biến thể: Gọi sendOrderToDB rồi sửa tay trong code
+        // ĐỂ ĐƠN GIẢN: Ta sửa hàm sendOrderToDB trong firebase-service.js để nhận status
+        // NHƯNG ĐỂ KHÔNG SỬA FILE KIA: Ta import push từ firebase-service
         
-        alert("Đã gửi yêu cầu. Vui lòng đợi thu ngân.");
+        // *Quan trọng*: Nếu bạn chưa export `push` từ firebase-service.js, code này sẽ lỗi.
+        // Giả sử bạn ĐÃ SỬA firebase-service.js như bài trước.
+        // Tôi sẽ dùng object import ở đầu file.
+        
+        // Gửi request
+        // Lưu ý: Nếu firebase-service export push, ta dùng push.
+        // Nếu không, ta dùng sendOrderToDB và chấp nhận nó hiện ở bếp (nhưng ta đã filter tên món ở bếp nên không sao)
+        sendOrderToDB(currentTable, reqData.items, 0, total); 
+        
+        alert("Đã gửi yêu cầu. Vui lòng đợi thu ngân xác nhận.");
         document.getElementById('payment-method-modal').classList.add('hidden');
     }
 }
-window.closePaymentModal = function() { document.getElementById('payment-method-modal').classList.add('hidden'); }
+function closePaymentModal() { document.getElementById('payment-method-modal').classList.add('hidden'); }
 
 // --- BILL ---
-window.requestBill = function() {
+function requestBill() {
     const html = generateBillHtml(currentTable);
     document.getElementById('bill-content').innerHTML = html;
     document.getElementById('bill-modal').classList.remove('hidden');
@@ -437,7 +410,7 @@ function generateBillHtml(tId) {
     let html = `<div class="text-center fw-bold">HÓA ĐƠN TẠM TÍNH<br>Bàn ${tId}</div><hr>`;
     let total = 0;
     orders.forEach(batch => {
-        if(batch.items[0]?.name.includes("Yêu cầu TT")) return; // Ẩn các request thanh toán
+        if(batch.items[0]?.name.includes("Yêu cầu TT")) return;
         batch.items.forEach(i => {
             const iTotal = (i.price*i.qty) + (i.toppings?i.toppings.reduce((a,b)=>a+b.price,0):0);
             total += iTotal;
@@ -449,7 +422,7 @@ function generateBillHtml(tId) {
     html += `<div class="text-center mt-3"><img src="${BANK_QR_URL}" style="width:100px"><br><small>Quét mã thanh toán</small></div>`;
     return html;
 }
-window.downloadBill = function() {
+function downloadBill() {
     html2canvas(document.getElementById('bill-content')).then(c => {
         const link = document.createElement('a'); link.download="Bill.png"; link.href=c.toDataURL(); link.click();
     });
@@ -461,17 +434,34 @@ function initCashierView(orders) {
     grid.innerHTML = "";
     const tables = [...new Set(orders.map(o => o.table))];
     tables.forEach(t => {
-        // Check có request thanh toán không (dựa vào tên món đặc biệt ta đã gửi)
         const hasReq = orders.some(o => o.table == t && o.items[0]?.name.includes("Yêu cầu TT"));
         const col = document.createElement('div'); col.className = "col-4 col-md-3";
         col.innerHTML = `<div class="table-btn active" onclick="showTableBill('${t}')"><h4>${t}</h4>${hasReq?'<div class="red-dot"></div>':''}</div>`;
         grid.appendChild(col);
     });
 }
-window.showTableBill = function(tId) {
+function showTableBill(tId) {
     const html = generateBillHtml(tId);
     document.getElementById('bill-content').innerHTML = html;
     document.getElementById('bill-modal').classList.remove('hidden');
+}
+function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const sheetName = workbook.SheetNames[0];
+        const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+        const cleanData = json.map(item => ({
+            id: item.ID, TenMon: item.TenMon, MoTa: item.MoTa || "", PhanLoai: item.PhanLoai || "TP",
+            img: item.HinhAnh || "https://via.placeholder.com/100", hasMultiSize: !!item.Co2Size, 
+            GiaM: item.GiaM || 0, VonM: item.VonM || 0, GiaL: item.GiaL || 0, VonL: item.VonL || 0
+        }));
+        if(confirm(`Cập nhật ${cleanData.length} món?`)) saveMenuToDB(cleanData).then(() => alert("Xong!")).catch(err => alert("Lỗi: " + err));
+    };
+    reader.readAsArrayBuffer(file);
 }
 
 // --- BẾP ---
@@ -480,16 +470,44 @@ function initKitchenView(orders) {
     list.innerHTML = "";
     const active = orders.filter(o => o.status === 'moi' || o.status === 'dang_lam');
     active.forEach(o => {
-        if(o.items[0]?.name.includes("Yêu cầu TT")) return; // Bếp không hiện đơn thanh toán
+        if(o.items[0]?.name.includes("Yêu cầu TT")) return; 
         const itemsHtml = o.items.map(i => {
             const note = i.note ? `<div class="text-info small"><i class="fas fa-pen"></i> ${i.note}</div>` : '';
             return `<div class="border-bottom border-secondary py-1">${i.name} (${i.size}) x${i.qty} ${note}</div>`;
         }).join('');
+        
         let btn = o.status==='moi' 
             ? `<button class="btn btn-warning w-100 fw-bold" onclick="updateOrderStatus('${o.key}','dang_lam')">NHẬN ĐƠN</button>`
             : `<button class="btn btn-success w-100 fw-bold" onclick="updateOrderStatus('${o.key}','xong')">PHỤC VỤ XONG</button>`;
+        
         const div = document.createElement('div'); div.className = "card-kitchen p-3 shadow";
         div.innerHTML = `<div class="d-flex justify-content-between text-warning"><h4>BÀN ${o.table}</h4><span>${new Date(o.timestamp).toLocaleTimeString()}</span></div><div class="mb-3">${itemsHtml}</div>${btn}`;
         list.appendChild(div);
     });
 }
+
+// --- QUAN TRỌNG: GÁN HÀM RA WINDOW ---
+window.addToCart = addToCart;
+window.removeRecentItem = removeRecentItem;
+window.openMultiSizeModal = openMultiSizeModal;
+window.updateModalQty = updateModalQty;
+window.openCartDetails = openCartDetails;
+window.closeCartDetails = closeCartDetails;
+window.changeCartQty = changeCartQty;
+window.updateNote = updateNote;
+window.removeTopping = removeTopping;
+window.showToppingSelector = showToppingSelector;
+window.selectTopping = selectTopping;
+window.submitOrder = submitOrder;
+window.openSplitBillModal = openSplitBillModal;
+window.toggleSplitItem = toggleSplitItem;
+window.proceedSplitPayment = proceedSplitPayment;
+window.showQR = showQR;
+window.showCashInstruction = showCashInstruction;
+window.confirmTransfer = confirmTransfer;
+window.closePaymentModal = closePaymentModal;
+window.requestBill = requestBill;
+window.downloadBill = downloadBill;
+window.showTableBill = showTableBill;
+window.updateOrderStatus = updateOrderStatus;
+window.handleFileUpload = handleFileUpload;
