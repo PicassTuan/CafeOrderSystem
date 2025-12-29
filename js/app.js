@@ -1,18 +1,17 @@
 import { saveMenuToDB, listenForMenu, sendOrderToDB, listenForOrders, updateOrderStatus, deleteOrder } from './firebase-service.js';
 
-// --- CẤU HÌNH QR NGÂN HÀNG ---
-// Thay số tài khoản và ngân hàng vào link này (Ví dụ: MB, 0349315099)
-const BANK_QR_BASE = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
+// --- CẤU HÌNH ---
+const BANK_QR_URL = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
 
-// --- BIẾN TOÀN CỤC ---
+// --- STATE ---
 let MENU_DATA = [];
-let cart = {}; 
-let dbOrders = []; 
+let cart = {}; // Chứa các món đang chọn (Draft)
+let dbOrders = []; // Chứa các món đã gửi lên Server
 let currentTable = "Mang Về";
 let currentCategory = "ALL";
 let currentSearch = "";
 let currentItemForModal = null;
-let currentCashierTable = null;
+let cashierSelectedTable = null; // Bàn thu ngân đang xem
 
 const CATEGORIES = [
     { code: "ALL", name: "Tất cả" }, { code: "TS", name: "Trà sữa" },
@@ -34,6 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
         dbOrders = orders;
         if (view === 'bep') initKitchenView(orders);
         if (view === 'thungan') initCashierView(orders);
+        // Nếu modal giỏ hàng đang mở, render lại để thấy cập nhật (ví dụ chuyển trạng thái món)
         if (!view && !document.getElementById('cart-modal').classList.contains('hidden')) {
             openCartDetails();
         }
@@ -44,9 +44,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (view === 'bep') document.getElementById('view-kitchen').classList.remove('hidden');
     if (view === 'thungan') document.getElementById('view-cashier').classList.remove('hidden');
 
+    // Các sự kiện phụ
     const uploadInput = document.getElementById('cashier-upload-excel');
     if(uploadInput) uploadInput.addEventListener('change', handleFileUpload);
-
     const searchInput = document.getElementById('search-input');
     if(searchInput) searchInput.addEventListener('input', (e) => {
         currentSearch = e.target.value.toLowerCase();
@@ -54,7 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 });
 
-/* ==================== 1. LOGIC KHÁCH HÀNG ==================== */
+/* ================= KHÁCH HÀNG ================= */
 
 function initCustomerView() {
     document.getElementById('view-customer').classList.remove('hidden');
@@ -84,22 +84,23 @@ function renderMenu() {
     });
 
     filtered.forEach(item => {
-        let currentQty = 0;
-        Object.values(cart).forEach(order => {
-            if (order.item.id === item.id && order.size === 'M') currentQty += order.qty;
+        // Logic hiển thị số lượng: Chỉ tính trong Giỏ hàng (Draft) để khách biết mình đang chọn bao nhiêu
+        let draftQty = 0;
+        Object.values(cart).forEach(o => { 
+            if(o.item.id === item.id && o.size === 'M') draftQty += o.qty; 
         });
 
         let btnHtml = "";
         if (item.hasMultiSize) {
             btnHtml = `<button class="btn-add-cart" onclick="window.openMultiSizeModal(${item.id})">Thêm</button>`;
         } else {
-            if (currentQty === 0) {
+            if (draftQty === 0) {
                 btnHtml = `<button class="btn-add-cart" onclick="window.addToCart(${item.id})">Thêm</button>`;
             } else {
                 btnHtml = `
                     <div class="qty-control-inline">
                         <button onclick="window.removeDraftItem(${item.id})">-</button>
-                        <span>${currentQty}</span>
+                        <span>${draftQty}</span>
                         <button onclick="window.addToCart(${item.id})">+</button>
                     </div>`;
             }
@@ -121,11 +122,13 @@ function renderMenu() {
     updateBottomBar();
 }
 
+// --- LOGIC GIỎ HÀNG (DRAFT) ---
 function addToCart(id) {
     const item = MENU_DATA.find(i => i.id == id);
     const uniqueKey = `draft_${Date.now()}_${Math.random()}`;
     cart[uniqueKey] = { item: item, size: 'M', qty: 1, price: item.GiaM, note: '', timestamp: Date.now() };
-    renderMenu(); updateBottomBar();
+    renderMenu(); 
+    updateBottomBar();
 }
 
 function removeDraftItem(itemId) {
@@ -134,6 +137,7 @@ function removeDraftItem(itemId) {
     renderMenu(); updateBottomBar();
 }
 
+// Popup Size
 function openMultiSizeModal(id) {
     const item = MENU_DATA.find(i => i.id == id);
     document.getElementById('modal-title').innerText = item.TenMon;
@@ -160,53 +164,54 @@ function updateModalQty(size, delta) {
 
 function updateBottomBar() {
     let count = 0; let total = 0;
+    // Tính tổng draft
     Object.values(cart).forEach(o => { count += o.qty; total += o.price * o.qty; });
-    const sentOrders = dbOrders.filter(o => o.table == currentTable);
-    sentOrders.forEach(o => {
-        o.items.forEach(i => { count += i.qty; total += i.price * i.qty; });
-    });
+    // Tính tổng history (đã gọi)
+    const history = dbOrders.filter(o => o.table == currentTable);
+    history.forEach(o => { o.items.forEach(i => { count += i.qty; total += i.price * i.qty; }); });
+
     document.getElementById('total-count').innerText = count;
     document.getElementById('total-price').innerText = total.toLocaleString() + "đ";
 }
 
-// --- GIỎ HÀNG CHI TIẾT ---
+// --- CHI TIẾT GIỎ HÀNG (MŨI TÊN LÊN) ---
 function openCartDetails() {
-    document.getElementById('cart-table-title').innerText = "Đơn của " + currentTable;
     const list = document.getElementById('cart-items-list');
     list.innerHTML = "";
     
-    // Món đã gọi (History)
-    const sentOrders = dbOrders.filter(o => o.table == currentTable).sort((a,b) => b.timestamp - a.timestamp);
-    if(sentOrders.length > 0) {
-        list.innerHTML += `<div class="mb-2 text-success fw-bold small">MÓN ĐÃ GỌI</div>`;
-        sentOrders.forEach(batch => {
+    // 1. Render Món Đã Gọi (History)
+    const history = dbOrders.filter(o => o.table == currentTable).sort((a,b) => b.timestamp - a.timestamp);
+    if(history.length > 0) {
+        list.innerHTML += `<div class="mb-2 text-success fw-bold small">MÓN ĐÃ GỌI (Bếp đang làm)</div>`;
+        history.forEach(batch => {
             const time = new Date(batch.timestamp).toLocaleTimeString().slice(0,5);
             batch.items.forEach(i => {
-                const note = i.note ? `<div class="text-muted small"><i>Note: ${i.note}</i></div>` : '';
+                const note = i.note ? `<div class="text-muted small">Note: ${i.note}</div>` : '';
                 list.innerHTML += `
-                    <div class="cart-item-row" style="border-left: 4px solid #198754; background: #e8f5e9;">
+                    <div class="cart-item-row" style="border-left: 4px solid #198754; background: #f0fff4;">
+                        <span class="status-badge badge-sent">${time}</span>
                         <div class="d-flex justify-content-between">
                             <div><b>${i.name} (${i.size})</b> <br> <small>${i.price.toLocaleString()}đ</small></div>
                             <div class="fw-bold">x${i.qty}</div>
                         </div>
                         ${note}
-                        <div class="text-end small text-success mt-1"><i class="fas fa-clock"></i> Gọi lúc ${time}</div>
                     </div>`;
             });
         });
     }
 
-    // Món đang chọn (Draft)
+    // 2. Render Món Đang Chọn (Draft)
     const drafts = Object.entries(cart);
     if(drafts.length > 0) {
         list.innerHTML += `<div class="mt-3 mb-2 text-warning fw-bold small">MÓN ĐANG CHỌN (Chưa gửi)</div>`;
         drafts.forEach(([key, order]) => {
             list.innerHTML += `
                 <div class="cart-item-row" style="border-left: 4px solid #ffc107;">
+                    <span class="status-badge badge-draft">Mới</span>
                     <div class="d-flex justify-content-between">
                         <div><b>${order.item.TenMon} (${order.size})</b> <br> <small>${order.price.toLocaleString()}đ</small></div>
                         <div class="qty-control-inline" style="background:#eee">
-                            <button onclick="window.removeDraftItem('${order.item.id}')">-</button><span>${order.qty}</span><button onclick="window.addToCart('${order.item.id}')">+</button>
+                            <button onclick="window.removeDraft('${key}')">-</button><span>${order.qty}</span><button onclick="window.addDraft('${key}')">+</button>
                         </div>
                     </div>
                     <input type="text" class="note-input" placeholder="Ghi chú cho bếp..." value="${order.note}" onchange="window.updateNote('${key}', this.value)">
@@ -214,28 +219,24 @@ function openCartDetails() {
         });
     }
 
-    // Trạng thái nút thanh toán
-    const hasSent = sentOrders.length > 0;
-    const btnPay = document.getElementById('btn-pay');
+    // Cập nhật trạng thái nút
+    const hasDraft = drafts.length > 0;
+    const hasHistory = history.length > 0;
+    document.getElementById('btn-order').disabled = !hasDraft;
     
-    // Logic: Nếu chưa gọi món nào (chưa có history) thì disable nút thanh toán
-    if(!hasSent) {
-        btnPay.disabled = true;
-        btnPay.innerText = "CHƯA CÓ ĐƠN ĐỂ THANH TOÁN";
-        btnPay.classList.replace('btn-primary', 'btn-secondary');
-    } else {
-        btnPay.disabled = false;
-        btnPay.innerText = "THANH TOÁN & XUẤT HĐ";
-        btnPay.classList.replace('btn-secondary', 'btn-primary');
-    }
-
+    // Nút thanh toán: Chỉ sáng khi KHÔNG còn món draft nào và CÓ lịch sử gọi
+    const canPay = !hasDraft && hasHistory;
+    document.getElementById('btn-pay').disabled = !canPay; 
+    
     document.getElementById('cart-modal').classList.remove('hidden');
 }
 
+function removeDraft(key) { delete cart[key]; updateBottomBar(); openCartDetails(); renderMenu(); }
+function addDraft(key) { const old = cart[key]; addToCart(old.item.id); openCartDetails(); }
 function updateNote(key, val) { if(cart[key]) cart[key].note = val; }
 
 function submitOrder() {
-    if(Object.keys(cart).length === 0) { alert("Bạn chưa chọn món mới nào!"); return; }
+    if(Object.keys(cart).length === 0) return;
     if(confirm("Gửi món xuống bếp?")) {
         const items = Object.values(cart).map(c => ({
             name: c.item.TenMon, size: c.size, qty: c.qty, price: c.price, note: c.note
@@ -248,15 +249,14 @@ function submitOrder() {
     }
 }
 
-// --- HÓA ĐƠN ---
+// --- HÓA ĐƠN & QR ---
 function requestBill() {
-    // Đóng giỏ hàng trước khi mở hóa đơn
     document.getElementById('cart-modal').classList.add('hidden');
     
     const html = generateBillHtml(currentTable);
     document.getElementById('bill-content').innerHTML = html;
     
-    // Setup nút bấm cho Khách (ẩn nút thu ngân)
+    // Khách: Hiện nút đóng/lưu, Ẩn nút thu ngân
     document.getElementById('customer-actions').classList.remove('hidden');
     document.getElementById('cashier-actions').classList.add('hidden');
     
@@ -308,70 +308,13 @@ function generateBillHtml(tId) {
     `;
 }
 
-function downloadBill() {
-    html2canvas(document.getElementById('bill-content')).then(canvas => {
-        const link = document.createElement('a');
-        link.download = `HoaDon_${currentTable}.png`;
-        link.href = canvas.toDataURL();
-        link.click();
-    });
-}
-
-// --- THU NGÂN ---
-function initCashierView(orders) {
-    const grid = document.getElementById('table-grid');
-    grid.innerHTML = "";
-    const tables = [...new Set(orders.map(o => o.table))];
-    
-    if(tables.length === 0) {
-        grid.innerHTML = "<p class='text-center text-muted w-100'>Chưa có bàn nào hoạt động</p>";
-        return;
-    }
-
-    tables.forEach(t => {
-        // Dùng data attribute để tránh lỗi nếu tên bàn có dấu cách
-        const col = document.createElement('div');
-        col.className = "col-4 col-md-3";
-        col.innerHTML = `
-            <div class="table-btn active p-3 text-center border rounded bg-white shadow-sm" 
-                 onclick="window.openCashierBill(this.getAttribute('data-id'))" data-id="${t}">
-                <h4 class="m-0 fw-bold text-success">${t}</h4>
-                <small class="text-muted">Đang phục vụ</small>
-            </div>`;
-        grid.appendChild(col);
-    });
-}
-
-function openCashierBill(tId) {
-    currentCashierTable = tId;
-    const html = generateBillHtml(tId);
-    document.getElementById('bill-content').innerHTML = html;
-    
-    // Setup nút bấm cho Thu Ngân (ẩn nút khách)
-    document.getElementById('customer-actions').classList.add('hidden');
-    document.getElementById('cashier-actions').classList.remove('hidden');
-    document.getElementById('cashier-actions').classList.add('d-flex');
-    
-    document.getElementById('bill-modal').classList.remove('hidden');
-}
-
-function finishTable(type) {
-    if(!currentCashierTable) return;
-    let msg = type === 'kv' ? "Đã nhập KiotViet?" : "Đã nhận tiền thanh toán?";
-    if(confirm(msg + " Bàn sẽ được xóa khỏi danh sách.")) {
-        const toDelete = dbOrders.filter(o => o.table == currentCashierTable);
-        toDelete.forEach(o => deleteOrder(o.key));
-        document.getElementById('bill-modal').classList.add('hidden');
-        alert("Đã hoàn thành bàn: " + currentCashierTable);
-    }
-}
-
 // --- BẾP ---
 function initKitchenView(orders) {
     const list = document.getElementById('kitchen-orders');
     list.innerHTML = "";
     const active = orders.filter(o => o.status === 'moi' || o.status === 'dang_lam');
-    if(active.length === 0) { list.innerHTML = "<p class='text-center text-white mt-5 opacity-50'>Trống đơn...</p>"; return; }
+    
+    if(active.length === 0) { list.innerHTML = "<p class='text-center text-white mt-5'>Không có đơn...</p>"; return; }
 
     active.forEach(o => {
         const itemsHtml = o.items.map(i => {
@@ -391,45 +334,69 @@ function initKitchenView(orders) {
                 <span>${new Date(o.timestamp).toLocaleTimeString().slice(0,5)}</span>
             </div>
             <div class="mb-3">${itemsHtml}</div>
-            ${btn}
-        `;
+            ${btn}`;
         list.appendChild(div);
     });
 }
 
-function handleFileUpload(e) {
-    const file = e.target.files[0];
-    if(!file) return;
-    const reader = new FileReader();
-    reader.onload = function(e) {
-        const data = new Uint8Array(e.target.result);
-        const workbook = XLSX.read(data, {type: 'array'});
-        const sheetName = workbook.SheetNames[0];
-        const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        const cleanData = json.map(item => ({
-            id: item.ID, TenMon: item.TenMon, MoTa: item.MoTa || "", PhanLoai: item.PhanLoai || "TP",
-            img: item.HinhAnh || "https://via.placeholder.com/100", hasMultiSize: !!item.Co2Size, 
-            GiaM: item.GiaM || 0, VonM: item.VonM || 0, GiaL: item.GiaL || 0, VonL: item.VonL || 0
-        }));
-        if(confirm(`Cập nhật ${cleanData.length} món?`)) saveMenuToDB(cleanData);
-    };
-    reader.readAsArrayBuffer(file);
+// --- THU NGÂN ---
+function initCashierView(orders) {
+    const grid = document.getElementById('table-grid');
+    grid.innerHTML = "";
+    const tables = [...new Set(orders.map(o => o.table))];
+    
+    if(tables.length === 0) { grid.innerHTML = "<p class='text-center text-muted'>Chưa có bàn nào.</p>"; return; }
+
+    tables.forEach(t => {
+        const col = document.createElement('div');
+        col.className = "col-4 col-md-3";
+        col.innerHTML = `
+            <div class="table-btn active p-3 text-center border rounded bg-white shadow-sm" 
+                 onclick="window.openCashierBill('${t}')" style="cursor:pointer">
+                <h4 class="m-0 fw-bold text-success">${t}</h4>
+                <small class="text-muted">Đang phục vụ</small>
+            </div>`;
+        grid.appendChild(col);
+    });
 }
 
-// --- EXPOSE TO WINDOW ---
+function openCashierBill(tId) {
+    cashierSelectedTable = tId;
+    const html = generateBillHtml(tId);
+    document.getElementById('bill-content').innerHTML = html;
+    
+    // Thu ngân: Ẩn nút khách, hiện nút thu ngân
+    document.getElementById('customer-actions').classList.add('hidden');
+    document.getElementById('cashier-actions').classList.remove('hidden');
+    
+    document.getElementById('bill-modal').classList.remove('hidden');
+}
+
+function finishTable(type) {
+    if(!cashierSelectedTable) return;
+    let msg = type === 'kv' ? "Xác nhận đã nhập KiotViet?" : "Xác nhận đã Thanh toán?";
+    if(confirm(msg + " Bàn sẽ được xóa.")) {
+        const toDelete = dbOrders.filter(o => o.table == cashierSelectedTable);
+        toDelete.forEach(o => deleteOrder(o.key));
+        document.getElementById('bill-modal').classList.add('hidden');
+        alert("Đã chốt bàn " + cashierSelectedTable);
+    }
+}
+
+// --- CÔNG KHAI HÀM RA WINDOW (QUAN TRỌNG NHẤT) ---
 window.addToCart = addToCart;
-window.removeRecentItem = removeRecentItem; // Sửa lỗi gọi nhầm tên hàm
-window.removeDraftItem = removeDraftItem; // Thêm hàm này
+window.removeDraftItem = removeDraftItem;
 window.openMultiSizeModal = openMultiSizeModal;
-window.closeModal = () => document.getElementById('size-modal').classList.add('hidden');
 window.updateModalQty = updateModalQty;
 window.openCartDetails = openCartDetails;
 window.closeCartDetails = () => document.getElementById('cart-modal').classList.add('hidden');
+window.closeModal = () => document.getElementById('size-modal').classList.add('hidden');
+window.removeDraft = removeDraft;
+window.addDraft = addDraft;
 window.updateNote = updateNote;
 window.submitOrder = submitOrder;
 window.requestBill = requestBill;
-window.downloadBill = downloadBill;
+window.downloadBill = () => html2canvas(document.getElementById('bill-content')).then(c => { const l=document.createElement('a'); l.download="Bill.png"; l.href=c.toDataURL(); l.click(); });
 window.updateOrderStatus = updateOrderStatus;
 window.openCashierBill = openCashierBill;
 window.finishTable = finishTable;
-window.handleFileUpload = handleFileUpload;

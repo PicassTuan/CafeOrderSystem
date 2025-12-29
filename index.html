@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>NACA Coffee</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -16,7 +16,7 @@
         <div class="top-search-bar">
             <div class="input-group">
                 <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
-                <input type="text" id="search-input" class="form-control border-start-0 ps-0" placeholder="Nhập tên món...">
+                <input type="text" id="search-input" class="form-control border-start-0 ps-0" placeholder="Tìm món...">
             </div>
         </div>
 
@@ -33,8 +33,8 @@
                     <div class="cart-info-box count-box">
                         <small>SL</small><strong id="total-count">0</strong>
                     </div>
-                    <div class="cart-info-box text-end pe-3 flex-grow-1" style="background:transparent; border:none;">
-                        <small style="color:#ccc">Tạm tính</small><br>
+                    <div class="cart-info-box text-end pe-3 flex-grow-1" style="background: transparent; border: none;">
+                        <small style="color:#ddd">Tạm tính</small><br>
                         <strong class="text-warning" id="total-price" style="font-size:16px">0đ</strong>
                     </div>
                     <div class="arrow-box"><i class="fas fa-chevron-up"></i></div>
@@ -44,9 +44,9 @@
     </div>
 
     <div id="cart-modal" class="modal-overlay hidden" style="align-items: flex-end;">
-        <div class="bg-white w-100 rounded-top-4 d-flex flex-column" style="height: 85vh;">
+        <div class="bg-white w-100 rounded-top-4 d-flex flex-column" style="height: 90vh;">
             <div class="p-3 border-bottom d-flex justify-content-between align-items-center bg-light rounded-top-4">
-                <h5 class="fw-bold m-0"><i class="fas fa-receipt"></i> Đơn của bạn</h5>
+                <h5 class="fw-bold m-0"><i class="fas fa-receipt"></i> Chi tiết đơn</h5>
                 <button class="btn-close" onclick="window.closeCartDetails()"></button>
             </div>
             
@@ -54,7 +54,27 @@
 
             <div class="p-3 border-top bg-white">
                 <button class="btn btn-warning w-100 fw-bold py-3 mb-2 shadow-sm" id="btn-order" onclick="window.submitOrder()">GỌI MÓN (Gửi bếp)</button>
-                <button class="btn btn-primary w-100 fw-bold py-2 shadow-sm" id="btn-pay" onclick="window.requestBill()">THANH TOÁN & XUẤT HĐ</button>
+                <button class="btn btn-primary w-100 fw-bold py-2 shadow-sm" id="btn-pay" onclick="window.requestBill()" disabled>THANH TOÁN & XUẤT HĐ</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="bill-modal" class="modal-overlay hidden" style="z-index: 3000;">
+        <div class="bg-white rounded-3 shadow overflow-hidden d-flex flex-column" style="width: 360px; max-height: 95vh;">
+            <div id="bill-content" class="p-4 bg-white text-dark overflow-auto">
+                </div>
+            
+            <div class="p-3 bg-light border-top">
+                <div id="customer-actions" class="d-flex gap-2">
+                    <button class="btn btn-secondary flex-grow-1" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
+                    <button class="btn btn-success flex-grow-1" onclick="window.downloadBill()">📸 Lưu ảnh</button>
+                </div>
+
+                <div id="cashier-actions" class="hidden d-flex flex-column gap-2">
+                    <button class="btn btn-primary w-100 fw-bold" onclick="window.finishTable('kv')">ĐÃ NHẬP KIOTVIET</button>
+                    <button class="btn btn-success w-100 fw-bold" onclick="window.finishTable('pay')">ĐÃ THANH TOÁN</button>
+                    <button class="btn btn-outline-secondary w-100" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
+                </div>
             </div>
         </div>
     </div>
@@ -80,22 +100,6 @@
                 <div class="qty-control-blue">
                     <button onclick="window.updateModalQty('L', -1)">-</button><span id="qty-L">0</span><button onclick="window.updateModalQty('L', 1)">+</button>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="bill-modal" class="modal-overlay hidden" style="z-index: 3000;">
-        <div class="bg-white rounded-3 shadow overflow-hidden d-flex flex-column" style="width: 360px; max-height: 90vh;">
-            <div id="bill-content" class="p-4 bg-white text-dark overflow-auto"></div>
-            
-            <div id="customer-actions" class="p-3 bg-light border-top d-flex gap-2">
-                <button class="btn btn-secondary flex-grow-1" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
-                <button class="btn btn-success flex-grow-1" onclick="window.downloadBill()">📸 Lưu ảnh</button>
-            </div>
-
-            <div id="cashier-actions" class="p-3 bg-light border-top gap-2 hidden">
-                <button class="btn btn-primary flex-grow-1" onclick="window.finishTable('kv')">Đã nhập KiotViet</button>
-                <button class="btn btn-success flex-grow-1" onclick="window.finishTable('pay')">Đã Thanh Toán</button>
             </div>
         </div>
     </div>
