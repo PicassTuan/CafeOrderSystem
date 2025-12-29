@@ -1,12 +1,13 @@
 import { saveMenuToDB, listenForMenu, sendOrderToDB, listenForOrders, updateOrderStatus, deleteOrder } from './firebase-service.js';
 
-// --- CẤU HÌNH QR ---
-const BANK_QR_URL = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
+// --- CẤU HÌNH QR NGÂN HÀNG ---
+// Thay số tài khoản và ngân hàng vào link này (Ví dụ: MB, 0349315099)
+const BANK_QR_BASE = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
 
 // --- BIẾN TOÀN CỤC ---
 let MENU_DATA = [];
-let cart = {}; // Giỏ hàng (Món chưa gửi)
-let dbOrders = []; // Món đã gửi (History)
+let cart = {}; 
+let dbOrders = []; 
 let currentTable = "Mang Về";
 let currentCategory = "ALL";
 let currentSearch = "";
@@ -83,7 +84,6 @@ function renderMenu() {
     });
 
     filtered.forEach(item => {
-        // Tính số lượng trong giỏ (Chỉ tính món Mới/Draft)
         let currentQty = 0;
         Object.values(cart).forEach(order => {
             if (order.item.id === item.id && order.size === 'M') currentQty += order.qty;
@@ -91,16 +91,16 @@ function renderMenu() {
 
         let btnHtml = "";
         if (item.hasMultiSize) {
-            btnHtml = `<button class="btn-add-cart" onclick="openMultiSizeModal(${item.id})">Thêm</button>`;
+            btnHtml = `<button class="btn-add-cart" onclick="window.openMultiSizeModal(${item.id})">Thêm</button>`;
         } else {
             if (currentQty === 0) {
-                btnHtml = `<button class="btn-add-cart" onclick="addToCart(${item.id})">Thêm</button>`;
+                btnHtml = `<button class="btn-add-cart" onclick="window.addToCart(${item.id})">Thêm</button>`;
             } else {
                 btnHtml = `
                     <div class="qty-control-inline">
-                        <button onclick="removeRecentItem(${item.id})">-</button>
+                        <button onclick="window.removeDraftItem(${item.id})">-</button>
                         <span>${currentQty}</span>
-                        <button onclick="addToCart(${item.id})">+</button>
+                        <button onclick="window.addToCart(${item.id})">+</button>
                     </div>`;
             }
         }
@@ -121,26 +121,19 @@ function renderMenu() {
     updateBottomBar();
 }
 
-// Hàm thêm món (Không Alert, chỉ cập nhật số)
 function addToCart(id) {
     const item = MENU_DATA.find(i => i.id == id);
     const uniqueKey = `draft_${Date.now()}_${Math.random()}`;
-    cart[uniqueKey] = { 
-        item: item, size: 'M', qty: 1, price: item.GiaM, 
-        note: '', timestamp: Date.now() 
-    };
+    cart[uniqueKey] = { item: item, size: 'M', qty: 1, price: item.GiaM, note: '', timestamp: Date.now() };
     renderMenu(); updateBottomBar();
 }
 
-function removeRecentItem(itemId) {
+function removeDraftItem(itemId) {
     const keys = Object.keys(cart).filter(k => cart[k].item.id === itemId && cart[k].size === 'M');
-    if (keys.length > 0) {
-        delete cart[keys[keys.length - 1]];
-    }
+    if (keys.length > 0) delete cart[keys[keys.length - 1]];
     renderMenu(); updateBottomBar();
 }
 
-// Logic Popup Size
 function openMultiSizeModal(id) {
     const item = MENU_DATA.find(i => i.id == id);
     document.getElementById('modal-title').innerText = item.TenMon;
@@ -152,19 +145,14 @@ function openMultiSizeModal(id) {
     document.getElementById('size-modal').classList.remove('hidden');
 }
 
-function closeModal() { document.getElementById('size-modal').classList.add('hidden'); }
-
 function updateModalQty(size, delta) {
     if (delta > 0 && currentItemForModal) {
         const item = currentItemForModal;
         const price = size === 'M' ? item.GiaM : item.GiaL;
         const uniqueKey = `draft_${Date.now()}_${Math.random()}`;
-        cart[uniqueKey] = {
-            item: item, size: size, qty: 1, price: price, note: '', timestamp: Date.now()
-        };
-        // Không Alert nữa
+        cart[uniqueKey] = { item: item, size: size, qty: 1, price: price, note: '', timestamp: Date.now() };
         updateBottomBar();
-        // Cập nhật số lượng trên modal để khách biết
+        // Cập nhật số trên modal
         const el = document.getElementById(`qty-${size}`);
         el.innerText = parseInt(el.innerText) + 1;
     }
@@ -172,16 +160,11 @@ function updateModalQty(size, delta) {
 
 function updateBottomBar() {
     let count = 0; let total = 0;
-    
-    // Tính Local Draft
     Object.values(cart).forEach(o => { count += o.qty; total += o.price * o.qty; });
-    
-    // Tính History (DB)
     const sentOrders = dbOrders.filter(o => o.table == currentTable);
     sentOrders.forEach(o => {
         o.items.forEach(i => { count += i.qty; total += i.price * i.qty; });
     });
-
     document.getElementById('total-count').innerText = count;
     document.getElementById('total-price').innerText = total.toLocaleString() + "đ";
 }
@@ -192,7 +175,7 @@ function openCartDetails() {
     const list = document.getElementById('cart-items-list');
     list.innerHTML = "";
     
-    // 1. Món ĐÃ GỌI (Lịch sử)
+    // Món đã gọi (History)
     const sentOrders = dbOrders.filter(o => o.table == currentTable).sort((a,b) => b.timestamp - a.timestamp);
     if(sentOrders.length > 0) {
         list.innerHTML += `<div class="mb-2 text-success fw-bold small">MÓN ĐÃ GỌI</div>`;
@@ -201,7 +184,7 @@ function openCartDetails() {
             batch.items.forEach(i => {
                 const note = i.note ? `<div class="text-muted small"><i>Note: ${i.note}</i></div>` : '';
                 list.innerHTML += `
-                    <div class="cart-item-row" style="background:#e8f5e9;">
+                    <div class="cart-item-row" style="border-left: 4px solid #198754; background: #e8f5e9;">
                         <div class="d-flex justify-content-between">
                             <div><b>${i.name} (${i.size})</b> <br> <small>${i.price.toLocaleString()}đ</small></div>
                             <div class="fw-bold">x${i.qty}</div>
@@ -213,7 +196,7 @@ function openCartDetails() {
         });
     }
 
-    // 2. Món ĐANG CHỌN (Draft)
+    // Món đang chọn (Draft)
     const drafts = Object.entries(cart);
     if(drafts.length > 0) {
         list.innerHTML += `<div class="mt-3 mb-2 text-warning fw-bold small">MÓN ĐANG CHỌN (Chưa gửi)</div>`;
@@ -223,38 +206,41 @@ function openCartDetails() {
                     <div class="d-flex justify-content-between">
                         <div><b>${order.item.TenMon} (${order.size})</b> <br> <small>${order.price.toLocaleString()}đ</small></div>
                         <div class="qty-control-inline" style="background:#eee">
-                            <button onclick="removeDraft('${key}')">-</button><span>${order.qty}</span><button onclick="addDraft('${key}')">+</button>
+                            <button onclick="window.removeDraftItem('${order.item.id}')">-</button><span>${order.qty}</span><button onclick="window.addToCart('${order.item.id}')">+</button>
                         </div>
                     </div>
-                    <input type="text" class="note-input" placeholder="Ghi chú cho bếp..." value="${order.note}" onchange="updateNote('${key}', this.value)">
+                    <input type="text" class="note-input" placeholder="Ghi chú cho bếp..." value="${order.note}" onchange="window.updateNote('${key}', this.value)">
                 </div>`;
         });
+    }
+
+    // Trạng thái nút thanh toán
+    const hasSent = sentOrders.length > 0;
+    const btnPay = document.getElementById('btn-pay');
+    
+    // Logic: Nếu chưa gọi món nào (chưa có history) thì disable nút thanh toán
+    if(!hasSent) {
+        btnPay.disabled = true;
+        btnPay.innerText = "CHƯA CÓ ĐƠN ĐỂ THANH TOÁN";
+        btnPay.classList.replace('btn-primary', 'btn-secondary');
+    } else {
+        btnPay.disabled = false;
+        btnPay.innerText = "THANH TOÁN & XUẤT HĐ";
+        btnPay.classList.replace('btn-secondary', 'btn-primary');
     }
 
     document.getElementById('cart-modal').classList.remove('hidden');
 }
 
-function removeDraft(key) { delete cart[key]; updateBottomBar(); openCartDetails(); renderMenu(); }
-function addDraft(key) { 
-    const old = cart[key];
-    addToCart(old.item.id); 
-    openCartDetails();
-}
 function updateNote(key, val) { if(cart[key]) cart[key].note = val; }
-function closeCartDetails() { document.getElementById('cart-modal').classList.add('hidden'); }
 
-// GỌI MÓN (Gửi DB)
 function submitOrder() {
-    if(Object.keys(cart).length === 0) {
-        alert("Bạn chưa chọn món mới nào!");
-        return;
-    }
-    if(confirm("Xác nhận gọi món?")) {
+    if(Object.keys(cart).length === 0) { alert("Bạn chưa chọn món mới nào!"); return; }
+    if(confirm("Gửi món xuống bếp?")) {
         const items = Object.values(cart).map(c => ({
             name: c.item.TenMon, size: c.size, qty: c.qty, price: c.price, note: c.note
         }));
         let total = 0; items.forEach(i => total += i.price * i.qty);
-        
         sendOrderToDB(currentTable, items, 0, total);
         cart = {}; 
         alert("Gọi món thành công!");
@@ -262,12 +248,15 @@ function submitOrder() {
     }
 }
 
-// XUẤT HÓA ĐƠN
+// --- HÓA ĐƠN ---
 function requestBill() {
+    // Đóng giỏ hàng trước khi mở hóa đơn
+    document.getElementById('cart-modal').classList.add('hidden');
+    
     const html = generateBillHtml(currentTable);
     document.getElementById('bill-content').innerHTML = html;
     
-    // Khách hàng: Hiện nút đóng/lưu ảnh, Ẩn nút thu ngân
+    // Setup nút bấm cho Khách (ẩn nút thu ngân)
     document.getElementById('customer-actions').classList.remove('hidden');
     document.getElementById('cashier-actions').classList.add('hidden');
     
@@ -322,25 +311,67 @@ function generateBillHtml(tId) {
 function downloadBill() {
     html2canvas(document.getElementById('bill-content')).then(canvas => {
         const link = document.createElement('a');
-        link.download = `HoaDon_Ban${currentTable}.png`;
+        link.download = `HoaDon_${currentTable}.png`;
         link.href = canvas.toDataURL();
         link.click();
     });
 }
 
-/* ==================== 2. LOGIC BẾP ==================== */
+// --- THU NGÂN ---
+function initCashierView(orders) {
+    const grid = document.getElementById('table-grid');
+    grid.innerHTML = "";
+    const tables = [...new Set(orders.map(o => o.table))];
+    
+    if(tables.length === 0) {
+        grid.innerHTML = "<p class='text-center text-muted w-100'>Chưa có bàn nào hoạt động</p>";
+        return;
+    }
 
+    tables.forEach(t => {
+        // Dùng data attribute để tránh lỗi nếu tên bàn có dấu cách
+        const col = document.createElement('div');
+        col.className = "col-4 col-md-3";
+        col.innerHTML = `
+            <div class="table-btn active p-3 text-center border rounded bg-white shadow-sm" 
+                 onclick="window.openCashierBill(this.getAttribute('data-id'))" data-id="${t}">
+                <h4 class="m-0 fw-bold text-success">${t}</h4>
+                <small class="text-muted">Đang phục vụ</small>
+            </div>`;
+        grid.appendChild(col);
+    });
+}
+
+function openCashierBill(tId) {
+    currentCashierTable = tId;
+    const html = generateBillHtml(tId);
+    document.getElementById('bill-content').innerHTML = html;
+    
+    // Setup nút bấm cho Thu Ngân (ẩn nút khách)
+    document.getElementById('customer-actions').classList.add('hidden');
+    document.getElementById('cashier-actions').classList.remove('hidden');
+    document.getElementById('cashier-actions').classList.add('d-flex');
+    
+    document.getElementById('bill-modal').classList.remove('hidden');
+}
+
+function finishTable(type) {
+    if(!currentCashierTable) return;
+    let msg = type === 'kv' ? "Đã nhập KiotViet?" : "Đã nhận tiền thanh toán?";
+    if(confirm(msg + " Bàn sẽ được xóa khỏi danh sách.")) {
+        const toDelete = dbOrders.filter(o => o.table == currentCashierTable);
+        toDelete.forEach(o => deleteOrder(o.key));
+        document.getElementById('bill-modal').classList.add('hidden');
+        alert("Đã hoàn thành bàn: " + currentCashierTable);
+    }
+}
+
+// --- BẾP ---
 function initKitchenView(orders) {
     const list = document.getElementById('kitchen-orders');
     list.innerHTML = "";
-    
-    // Lọc đơn MỚI hoặc ĐANG LÀM
     const active = orders.filter(o => o.status === 'moi' || o.status === 'dang_lam');
-    
-    if(active.length === 0) {
-        list.innerHTML = "<p class='text-center text-white mt-5 opacity-50'>Hiện chưa có đơn nào...</p>";
-        return;
-    }
+    if(active.length === 0) { list.innerHTML = "<p class='text-center text-white mt-5 opacity-50'>Trống đơn...</p>"; return; }
 
     active.forEach(o => {
         const itemsHtml = o.items.map(i => {
@@ -348,12 +379,9 @@ function initKitchenView(orders) {
             return `<div class="border-bottom border-secondary py-1">${i.name} (${i.size}) x${i.qty} ${note}</div>`;
         }).join('');
         
-        let btn = "";
-        if(o.status === 'moi') {
-            btn = `<button class="btn btn-warning w-100 fw-bold" onclick="updateOrderStatus('${o.key}','dang_lam')">NHẬN ĐƠN (ĐANG LÀM)</button>`;
-        } else {
-            btn = `<button class="btn btn-success w-100 fw-bold" onclick="updateOrderStatus('${o.key}','xong')">PHỤC VỤ XONG</button>`;
-        }
+        let btn = o.status==='moi' 
+            ? `<button class="btn btn-warning w-100 fw-bold" onclick="window.updateOrderStatus('${o.key}','dang_lam')">NHẬN ĐƠN</button>`
+            : `<button class="btn btn-success w-100 fw-bold" onclick="window.updateOrderStatus('${o.key}','xong')">PHỤC VỤ XONG</button>`;
         
         const div = document.createElement('div'); 
         div.className = "card-kitchen mb-3 bg-dark text-white p-3 rounded shadow";
@@ -367,60 +395,6 @@ function initKitchenView(orders) {
         `;
         list.appendChild(div);
     });
-}
-
-/* ==================== 3. LOGIC THU NGÂN ==================== */
-
-function initCashierView(orders) {
-    const grid = document.getElementById('table-grid');
-    grid.innerHTML = "";
-
-    // Tìm các bàn có đơn chưa xóa
-    const tables = [...new Set(orders.map(o => o.table))];
-
-    if(tables.length === 0) {
-        grid.innerHTML = "<p class='text-center text-muted w-100'>Chưa có bàn nào hoạt động</p>";
-        return;
-    }
-
-    tables.forEach(t => {
-        const col = document.createElement('div');
-        col.className = "col-4 col-md-3";
-        col.innerHTML = `
-            <div class="table-btn active p-3 text-center border rounded bg-white shadow-sm" onclick="openCashierBill('${t}')" style="cursor:pointer">
-                <h4 class="m-0 fw-bold text-success">Bàn ${t}</h4>
-                <small class="text-muted">Đang phục vụ</small>
-            </div>`;
-        grid.appendChild(col);
-    });
-}
-
-function openCashierBill(tId) {
-    currentCashierTable = tId;
-    const html = generateBillHtml(tId);
-    document.getElementById('bill-content').innerHTML = html;
-    
-    // Thu ngân: Ẩn nút khách, hiện nút hành động thu ngân
-    document.getElementById('customer-actions').classList.add('hidden');
-    document.getElementById('cashier-actions').classList.remove('hidden');
-    document.getElementById('cashier-actions').classList.add('d-flex'); // Restore flex layout
-    
-    document.getElementById('bill-modal').classList.remove('hidden');
-}
-
-function finishTable(type) {
-    if(!currentCashierTable) return;
-    
-    let confirmMsg = type === 'kv' ? "Xác nhận đã nhập KiotViet?" : "Xác nhận đã Thanh toán?";
-    
-    if(confirm(confirmMsg)) {
-        // Tìm tất cả đơn của bàn này -> Xóa (Hoàn thành)
-        const toDelete = dbOrders.filter(o => o.table == currentCashierTable);
-        toDelete.forEach(o => deleteOrder(o.key));
-        
-        document.getElementById('bill-modal').classList.add('hidden');
-        alert("Đã chốt bàn " + currentCashierTable);
-    }
 }
 
 function handleFileUpload(e) {
@@ -442,16 +416,15 @@ function handleFileUpload(e) {
     reader.readAsArrayBuffer(file);
 }
 
-// EXPOSE TO WINDOW (BẮT BUỘC)
+// --- EXPOSE TO WINDOW ---
 window.addToCart = addToCart;
-window.removeRecentItem = removeRecentItem;
+window.removeRecentItem = removeRecentItem; // Sửa lỗi gọi nhầm tên hàm
+window.removeDraftItem = removeDraftItem; // Thêm hàm này
 window.openMultiSizeModal = openMultiSizeModal;
-window.closeModal = closeModal;
+window.closeModal = () => document.getElementById('size-modal').classList.add('hidden');
 window.updateModalQty = updateModalQty;
 window.openCartDetails = openCartDetails;
-window.closeCartDetails = closeCartDetails;
-window.removeDraft = removeDraft;
-window.addDraft = addDraft;
+window.closeCartDetails = () => document.getElementById('cart-modal').classList.add('hidden');
 window.updateNote = updateNote;
 window.submitOrder = submitOrder;
 window.requestBill = requestBill;
