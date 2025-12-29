@@ -1,292 +1,351 @@
 import { saveMenuToDB, listenForMenu, sendOrderToDB, listenForOrders, updateOrderStatus, deleteOrder } from './firebase-service.js';
 
-// --- CẤU HÌNH ---
-// Bạn có thể thay link ảnh QR ngân hàng của bạn vào đây
-const BANK_QR_URL = "https://img.vietqr.io/image/MB-0349315099-compact.png"; 
-
-// --- BIẾN TOÀN CỤC ---
+// --- KHAI BÁO BIẾN ---
 let MENU_DATA = [];
 let cart = {}; 
-let dbOrders = []; 
-let currentTable = "Mang Về";
-let currentCategory = "ALL";
+let currentModalItem = null;
 let currentSearch = "";
-let currentItemForModal = null; // Biến tạm cho modal size
+let currentCategory = "ALL";
 
-// Danh sách danh mục (Khớp với cột PhanLoai trong Excel)
+// Danh sách danh mục
 const CATEGORIES = [
-    { code: "ALL", name: "Tất cả" }, { code: "TS", name: "Trà sữa" },
-    { code: "THQ", name: "Trà hoa quả" }, { code: "SCL", name: "Sữa chua" },
-    { code: "CF", name: "Cà phê" }, { code: "TP", name: "Topping" }, 
-    { code: "AV", name: "Ăn vặt" }
+    { code: "ALL", name: "Tất cả" },
+    { code: "TS", name: "Trà sữa" },
+    { code: "THQ", name: "Trà hoa quả" },
+    { code: "SCL", name: "Sữa chua" },
+    { code: "NE", name: "Nước ép" },
+    { code: "DUST", name: "Sữa tươi" },
+    { code: "DXPK", name: "Đá xay" },
+    { code: "CF", name: "Cà phê" },
+    { code: "ST", name: "Sinh tố" },
+    { code: "KT", name: "Kem tươi" },
+    { code: "DUN", name: "Đồ nóng" },
+    { code: "AV", name: "Ăn vặt" },
+    { code: "TP", name: "Topping" }
 ];
 
-// --- KHỞI CHẠY (MAIN INIT) ---
+// --- KHỞI CHẠY ---
 document.addEventListener("DOMContentLoaded", () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const view = urlParams.get('view');
-    currentTable = urlParams.get('ban') || "Mang Về";
-
-    // 1. Lắng nghe Menu từ Firebase
+    // 1. Lắng nghe Menu
     listenForMenu((data) => {
         MENU_DATA = data;
-        if (!view) { renderCategories(); renderMenu(); }
-    });
-
-    // 2. Lắng nghe Đơn hàng từ Firebase
-    listenForOrders((orders) => {
-        dbOrders = orders;
-        if (view === 'bep') initKitchenView(orders);
-        if (view === 'thungan') initCashierView(orders);
-        // Nếu đang ở giao diện khách, cập nhật thanh dưới cùng
-        if(!view) updateBottomBar();
-    });
-
-    // 3. Điều hướng giao diện
-    if (!view) initCustomerView();
-    if (view === 'bep') document.getElementById('view-kitchen').classList.remove('hidden');
-    if (view === 'thungan') document.getElementById('view-cashier').classList.remove('hidden');
-
-    // 4. Sự kiện tìm kiếm
-    const searchInput = document.getElementById('search-input');
-    if(searchInput) searchInput.addEventListener('input', (e) => {
-        currentSearch = e.target.value.toLowerCase();
+        renderCategories();
         renderMenu();
     });
-    
-    // 5. Sự kiện Upload Excel (Thu ngân)
-    const uploadInput = document.getElementById('cashier-upload-excel');
-    if(uploadInput) uploadInput.addEventListener('change', handleFileUpload);
+
+    // 2. Xác định màn hình
+    const urlParams = new URLSearchParams(window.location.search);
+    const view = urlParams.get('view');
+    const table = urlParams.get('ban') || "Khách Lẻ";
+
+    if (view === 'bep') {
+        initKitchenView();
+    } else if (view === 'thungan') {
+        initCashierView();
+    } else {
+        initCustomerView(table);
+    }
+
+    // 3. Sự kiện tìm kiếm
+    const searchInput = document.getElementById('search-input');
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            currentSearch = e.target.value.toLowerCase();
+            renderMenu();
+        });
+    }
 });
 
-/* ==================== 1. LOGIC KHÁCH HÀNG ==================== */
+/* ================= LOGIC KHÁCH HÀNG (GIỮ NGUYÊN) ================= */
 
-function initCustomerView() {
+function initCustomerView(tableName) {
     document.getElementById('view-customer').classList.remove('hidden');
-    // Cập nhật tên bàn lên giao diện
-    const displayTable = document.getElementById('display-table');
-    if(displayTable) displayTable.innerText = currentTable;
+    document.getElementById('display-table').innerText = tableName;
+    
+    document.querySelector('.cart-status-bar').addEventListener('click', () => {
+        submitOrder(tableName);
+    });
 }
 
 function renderCategories() {
-    const container = document.getElementById('category-list');
-    if(!container) return;
-    container.innerHTML = "";
+    const catContainer = document.getElementById('category-list');
+    if (!catContainer) return; 
+    
+    catContainer.innerHTML = "";
     CATEGORIES.forEach(cat => {
         const div = document.createElement('div');
         div.className = `cat-chip ${cat.code === currentCategory ? 'active' : ''}`;
         div.innerText = cat.name;
-        div.onclick = () => { currentCategory = cat.code; renderCategories(); renderMenu(); };
-        container.appendChild(div);
+        div.onclick = () => {
+            currentCategory = cat.code;
+            renderCategories();
+            renderMenu();
+        };
+        catContainer.appendChild(div);
     });
 }
 
 function renderMenu() {
     const container = document.getElementById('menu-container');
-    if(!container) return;
+    if (!container) return; 
     container.innerHTML = "";
-    
-    const filtered = MENU_DATA.filter(item => {
-        const matchCat = currentCategory === "ALL" ? item.PhanLoai !== 'TP' : item.PhanLoai === currentCategory;
+
+    const filteredData = MENU_DATA.filter(item => {
         const matchSearch = item.TenMon.toLowerCase().includes(currentSearch);
-        return matchCat && matchSearch;
+        const matchCat = currentCategory === "ALL" || item.PhanLoai === currentCategory;
+        return matchSearch && matchCat;
     });
 
-    filtered.forEach(item => {
-        // Tính số lượng món này đang có trong giỏ (Local) để hiện +/-
-        let currentQty = 0;
-        Object.values(cart).forEach(order => {
-            if (order.item.id === item.id && order.size === 'M') currentQty += order.qty;
-        });
+    if(filteredData.length === 0) {
+        container.innerHTML = "<p class='text-center text-muted mt-5'>Không tìm thấy món nào...</p>";
+        return;
+    }
+
+    filteredData.forEach(item => {
+        let qtyDisplay = 0;
+        if(item.hasMultiSize) {
+            qtyDisplay = (cart[`${item.id}_M`] || 0) + (cart[`${item.id}_L`] || 0);
+        } else {
+            qtyDisplay = cart[`${item.id}_M`] || 0;
+        }
 
         let btnHtml = "";
         if (item.hasMultiSize) {
-            btnHtml = `<button class="btn-add-cart" onclick="openMultiSizeModal(${item.id})">Thêm</button>`;
+            btnHtml = `<button class="btn-add-cart" onclick="openMultiSizeModal(${item.id})">
+                        ${qtyDisplay > 0 ? 'Đã chọn: ' + qtyDisplay : 'Thêm vào đơn'}
+                       </button>`;
         } else {
-            if (currentQty === 0) {
-                btnHtml = `<button class="btn-add-cart" onclick="addToCart(${item.id})">Thêm</button>`;
+            if (qtyDisplay === 0) {
+                btnHtml = `<button class="btn-add-cart" onclick="updateQty('${item.id}_M', 1)">Thêm</button>`;
             } else {
                 btnHtml = `
                     <div class="qty-control">
-                        <button class="qty-btn" onclick="removeRecentItem(${item.id})">-</button>
-                        <span class="qty-num">${currentQty}</span>
-                        <button class="qty-btn" onclick="addToCart(${item.id})">+</button>
+                        <button class="qty-btn" onclick="updateQty('${item.id}_M', -1)">-</button>
+                        <span class="qty-num">${qtyDisplay}</span>
+                        <button class="qty-btn" onclick="updateQty('${item.id}_M', 1)">+</button>
                     </div>`;
             }
         }
 
         const div = document.createElement('div');
-        div.className = "item-card";
+        div.className = "container px-0";
         div.innerHTML = `
-            <img src="${item.img}" class="item-img" onerror="this.src='https://via.placeholder.com/100'">
-            <div class="item-info">
-                <div><h6 class="item-title">${item.TenMon}</h6><span class="item-desc">${item.MoTa}</span></div>
-                <div class="d-flex justify-content-between align-items-end">
-                    <span class="item-price">${parseInt(item.GiaM).toLocaleString()}đ</span>
-                    ${btnHtml}
+            <div class="item-card">
+                <img src="${item.img}" class="item-img" onerror="this.src='https://via.placeholder.com/100'">
+                <div class="item-info">
+                    <div>
+                        <h5 class="item-title">${item.TenMon}</h5>
+                        <p class="item-desc">${item.MoTa}</p>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <span class="item-price">${parseInt(item.GiaM).toLocaleString()}đ</span>
+                        ${btnHtml}
+                    </div>
                 </div>
             </div>`;
         container.appendChild(div);
     });
-    updateBottomBar();
+    updateBottomStatus();
 }
 
-function addToCart(id) {
+window.openMultiSizeModal = function(id) {
     const item = MENU_DATA.find(i => i.id == id);
-    const uniqueKey = `local_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    cart[uniqueKey] = { 
-        item: item, size: 'M', qty: 1, price: item.GiaM, 
-        note: '', toppings: [], timestamp: Date.now() 
-    };
-    renderMenu();
-    updateBottomBar();
-}
-
-function removeRecentItem(itemId) {
-    // Tìm và xóa item mới nhất của món đó
-    const keys = Object.keys(cart).filter(k => cart[k].item.id === itemId && cart[k].size === 'M');
-    if (keys.length > 0) {
-        const keyToRemove = keys[keys.length - 1]; // Lấy cái cuối cùng
-        delete cart[keyToRemove];
-    }
-    renderMenu();
-    updateBottomBar();
-}
-
-// Logic Popup Size
-function openMultiSizeModal(id) {
-    const item = MENU_DATA.find(i => i.id == id);
+    currentModalItem = item;
     document.getElementById('modal-title').innerText = item.TenMon;
     document.getElementById('modal-desc').innerText = item.MoTa;
     document.getElementById('modal-img').src = item.img;
-    
-    // Reset số lượng hiển thị trên modal
-    document.getElementById('qty-M').innerText = "0";
-    document.getElementById('qty-L').innerText = "0";
-    
-    currentItemForModal = item;
+    document.getElementById('qty-M').innerText = cart[`${id}_M`] || 0;
+    document.getElementById('qty-L').innerText = cart[`${id}_L`] || 0;
+    document.querySelector('.size-row:nth-child(2) .size-label').innerHTML = `SIZE M <small style="font-size:14px">(${parseInt(item.GiaM).toLocaleString()}đ)</small>`;
+    document.querySelector('.size-row:nth-child(3) .size-label').innerHTML = `SIZE L <small style="font-size:14px">(${parseInt(item.GiaL).toLocaleString()}đ)</small>`;
     document.getElementById('size-modal').classList.remove('hidden');
 }
 
-function closeModal() {
+window.closeModal = function() {
     document.getElementById('size-modal').classList.add('hidden');
+    renderMenu();
 }
 
-function updateModalQty(size, delta) {
-    if (delta > 0 && currentItemForModal) {
-        const item = currentItemForModal;
-        const price = size === 'M' ? item.GiaM : item.GiaL;
-        const uniqueKey = `local_${Date.now()}_${Math.random()}`;
-        
-        cart[uniqueKey] = {
-            item: item, size: size, qty: 1, price: price, note: '', toppings: [], timestamp: Date.now()
-        };
-        updateBottomBar();
-        alert(`Đã thêm 1 ${item.TenMon} (${size})`);
+window.updateQty = function(key, change) {
+    if (!cart[key]) cart[key] = 0;
+    cart[key] += change;
+    if (cart[key] <= 0) delete cart[key];
+    renderMenu(); 
+}
+
+window.updateModalQty = function(size, change) {
+    if (!currentModalItem) return;
+    const key = `${currentModalItem.id}_${size}`;
+    if (!cart[key]) cart[key] = 0;
+    cart[key] += change;
+    if (cart[key] < 0) cart[key] = 0;
+    document.getElementById(`qty-${size}`).innerText = cart[key];
+    if (cart[key] === 0) delete cart[key];
+    updateBottomStatus();
+}
+
+function updateBottomStatus() {
+    let totalCount = 0;
+    let totalPrice = 0;
+    for (const [key, qty] of Object.entries(cart)) {
+        const [id, size] = key.split('_');
+        const item = MENU_DATA.find(i => i.id == id);
+        if (item) {
+            const price = size === 'M' ? item.GiaM : item.GiaL;
+            totalCount += qty;
+            totalPrice += price * qty;
+        }
     }
-    // Modal size hiện tại chỉ hỗ trợ thêm, không hỗ trợ xóa trực tiếp tại đây (phải vào giỏ)
+    document.getElementById('total-count').innerText = totalCount;
+    document.getElementById('total-price').innerText = totalPrice.toLocaleString() + " đ";
 }
 
-function updateBottomBar() {
-    let count = 0; let total = 0;
-    
-    // Tính tổng Local Cart
-    Object.values(cart).forEach(order => {
-        count += order.qty;
-        total += (order.price * order.qty);
-        order.toppings.forEach(tp => total += tp.price);
-    });
-
-    // Cập nhật giao diện
-    document.getElementById('total-count').innerText = count;
-    document.getElementById('total-price').innerText = total.toLocaleString() + "đ";
-}
-
-/* ==================== 2. LOGIC BẾP ==================== */
-
-function initKitchenView(orders) {
-    const list = document.getElementById('kitchen-orders');
-    if(!list) return;
-    list.innerHTML = "";
-    
-    // Lọc đơn MỚI hoặc ĐANG LÀM
-    const active = orders.filter(o => o.status === 'moi' || o.status === 'dang_lam');
-    
-    if(active.length === 0) {
-        list.innerHTML = "<p class='text-center text-white mt-5 opacity-50'>Hiện chưa có đơn nào...</p>";
-        return;
+function submitOrder(tableName) {
+    const items = [];
+    let totalPrice = 0;
+    let totalCost = 0;
+    for (const [key, qty] of Object.entries(cart)) {
+        const [id, size] = key.split('_');
+        const item = MENU_DATA.find(i => i.id == id);
+        if (item) {
+            const price = size === 'M' ? item.GiaM : item.GiaL;
+            const cost = size === 'M' ? item.VonM : item.VonL;
+            items.push({ name: item.TenMon, size: size, qty: qty, price: price });
+            totalPrice += price * qty;
+            totalCost += cost * qty;
+        }
     }
-
-    active.forEach(o => {
-        const itemsHtml = o.items.map(i => {
-            const note = i.note ? `<div class="text-info small"><i class="fas fa-pen"></i> ${i.note}</div>` : '';
-            return `<div class="border-bottom border-secondary py-1">${i.name} (${i.size}) x${i.qty} ${note}</div>`;
-        }).join('');
-        
-        let btn = o.status==='moi' 
-            ? `<button class="btn btn-warning w-100 fw-bold" onclick="updateOrderStatus('${o.key}','dang_lam')">NHẬN ĐƠN</button>`
-            : `<button class="btn btn-success w-100 fw-bold" onclick="updateOrderStatus('${o.key}','xong')">PHỤC VỤ XONG</button>`;
-        
-        const div = document.createElement('div'); 
-        div.className = "card-kitchen p-3 shadow";
-        div.innerHTML = `
-            <div class="d-flex justify-content-between text-warning">
-                <h4>BÀN ${o.table}</h4>
-                <span>${new Date(o.timestamp).toLocaleTimeString()}</span>
-            </div>
-            <div class="mb-3">${itemsHtml}</div>
-            ${btn}
-        `;
-        list.appendChild(div);
-    });
+    if (items.length === 0) { alert("Bạn chưa chọn món nào!"); return; }
+    if(confirm(`Gửi đơn ${items.length} món? Tổng: ${totalPrice.toLocaleString()}đ`)) {
+        sendOrderToDB(tableName, items, totalCost, totalPrice);
+        cart = {}; renderMenu(); alert("Đã gửi đơn xuống bếp!");
+    }
 }
 
-/* ==================== 3. LOGIC THU NGÂN ==================== */
+/* ================= LOGIC BẾP (ĐÃ CẬP NHẬT 2 BƯỚC) ================= */
 
-function initCashierView(orders) {
-    const list = document.getElementById('cashier-orders');
-    if(!list) return;
-    list.innerHTML = "";
+function initKitchenView() {
+    document.getElementById('view-kitchen').classList.remove('hidden');
+    document.querySelector('.top-search-bar').classList.add('hidden');
+    document.querySelector('.bottom-area').classList.add('hidden');
 
-    // Lấy các đơn chưa thanh toán/nhập KV
-    const active = orders.filter(o => o.status !== 'da_nhap_kv');
-
-    if(active.length === 0) {
-        list.innerHTML = "<p class='text-center text-muted mt-5'>Chưa có đơn hàng nào.</p>";
-        return;
-    }
-
-    active.forEach(order => {
-        const itemDetails = order.items.map(i => `- ${i.name} (${i.size}) x${i.qty}`).join('<br>');
+    const listContainer = document.getElementById('kitchen-orders');
+    listenForOrders((orders) => {
+        listContainer.innerHTML = "";
+        // Hiển thị cả món MỚI (moi) và món ĐANG LÀM (dang_lam)
+        const activeOrders = orders.filter(o => o.status === 'moi' || o.status === 'dang_lam');
         
-        // Badge trạng thái
-        let badge = "";
-        if(order.status === 'moi') badge = '<span class="badge bg-secondary">Mới</span>';
-        else if(order.status === 'dang_lam') badge = '<span class="badge bg-warning text-dark">Đang làm</span>';
-        else if(order.status === 'xong') badge = '<span class="badge bg-success">Bếp xong</span>';
+        if(activeOrders.length === 0) listContainer.innerHTML = "<p class='text-center text-white'>Chưa có món cần làm...</p>";
 
-        const div = document.createElement('div');
-        div.className = `card mb-2 shadow-sm ${order.status === 'xong' ? 'border-success' : 'border-warning'}`;
-        div.innerHTML = `
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <h5 class="fw-bold">Bàn ${order.table}</h5>
-                    ${badge}
+        activeOrders.forEach(order => {
+            const itemDetails = order.items.map(i => `<div class="fs-5 fw-bold">- ${i.name} (${i.size}) <span class="text-danger">x${i.qty}</span></div>`).join('');
+            
+            // Logic nút bấm: Mới -> Nút LÀM (vàng) | Đang làm -> Nút PHỤC VỤ (xanh)
+            let actionBtn = "";
+            let cardHeaderColor = "bg-danger"; // Mặc định màu đỏ cho đơn mới
+
+            if (order.status === 'moi') {
+                actionBtn = `<button class="btn btn-warning w-100 mt-3 p-3 fs-5 fw-bold text-dark btn-action">👨‍🍳 LÀM MÓN</button>`;
+                cardHeaderColor = "bg-danger";
+            } else if (order.status === 'dang_lam') {
+                actionBtn = `<button class="btn btn-success w-100 mt-3 p-3 fs-5 fw-bold btn-action">✅ PHỤC VỤ</button>`;
+                cardHeaderColor = "bg-warning text-dark"; // Chuyển màu tiêu đề sang vàng cam
+            }
+
+            const div = document.createElement('div');
+            div.className = "card mb-3 shadow";
+            div.innerHTML = `
+                <div class="card-header ${cardHeaderColor} text-white d-flex justify-content-between">
+                    <h4 class="m-0">BÀN: ${order.table}</h4>
+                    <span>${new Date(order.timestamp).toLocaleTimeString()}</span>
                 </div>
-                <div class="mt-2 mb-2 text-muted" style="font-size:0.9rem">${itemDetails}</div>
-                <div class="d-flex justify-content-between align-items-center">
-                    <strong>Tổng: ${parseInt(order.totalPrice).toLocaleString()}đ</strong>
-                    <button class="btn btn-primary btn-sm" onclick="finishOrder('${order.key}')">Đã nhập KiotViet</button>
-                </div>
-            </div>`;
-        list.appendChild(div);
+                <div class="card-body">
+                    ${itemDetails}
+                    ${actionBtn}
+                </div>`;
+            
+            // Xử lý sự kiện click
+            div.querySelector('.btn-action').addEventListener('click', () => {
+                if (order.status === 'moi') {
+                    // Bước 1: Chuyển sang đang làm
+                    updateOrderStatus(order.key, 'dang_lam');
+                } else if (order.status === 'dang_lam') {
+                    // Bước 2: Chuyển sang xong (biến mất khỏi màn hình bếp)
+                    updateOrderStatus(order.key, 'xong');
+                }
+            });
+            
+            listContainer.appendChild(div);
+        });
     });
 }
 
-function finishOrder(key) {
-    if(confirm("Xác nhận đã nhập đơn này vào KiotViet?")) {
-        deleteOrder(key); // Xóa khỏi danh sách
-    }
+/* ================= LOGIC THU NGÂN (ĐÃ CẬP NHẬT HIỆN LẠI ORDER) ================= */
+
+function initCashierView() {
+    document.getElementById('view-cashier').classList.remove('hidden');
+    document.querySelector('.top-search-bar').classList.add('hidden');
+    document.querySelector('.bottom-area').classList.add('hidden');
+
+    const adminPanel = document.createElement('div');
+    adminPanel.className = "bg-white p-3 mb-3 shadow-sm rounded border-primary border-start border-5";
+    adminPanel.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="m-0 text-primary fw-bold">💰 Thu Ngân & Admin</h5>
+            <label class="btn btn-success btn-sm">
+                <i class="fas fa-file-excel"></i> Up Excel Menu
+                <input type="file" id="cashier-upload-excel" accept=".xlsx, .xls" hidden>
+            </label>
+        </div>`;
+    const container = document.getElementById('view-cashier');
+    container.insertBefore(adminPanel, container.firstChild);
+
+    document.getElementById('cashier-upload-excel').addEventListener('change', handleFileUpload);
+
+    const listContainer = document.getElementById('cashier-orders');
+    listenForOrders((orders) => {
+        listContainer.innerHTML = "";
+        
+        // Hiện tất cả các đơn chưa nhập vào KiotViet (Mới, Đang làm, Xong)
+        const activeOrders = orders.filter(o => o.status !== 'da_nhap_kv');
+        
+        if(activeOrders.length === 0) listContainer.innerHTML = "<p class='text-center text-muted'>Chưa có đơn...</p>";
+
+        activeOrders.forEach(order => {
+            const itemDetails = order.items.map(i => `- ${i.name} (${i.size}) x${i.qty}`).join('<br>');
+            
+            // Tạo huy hiệu trạng thái cho thu ngân dễ theo dõi
+            let statusBadge = "";
+            if (order.status === 'moi') statusBadge = '<span class="badge bg-secondary">Khách mới gọi</span>';
+            else if (order.status === 'dang_lam') statusBadge = '<span class="badge bg-warning text-dark">Bếp đang làm</span>';
+            else if (order.status === 'xong') statusBadge = '<span class="badge bg-success">Bếp đã xong</span>';
+
+            const div = document.createElement('div');
+            // Nếu xong rồi thì viền xanh, chưa xong thì viền vàng
+            div.className = `card mb-2 ${order.status === 'xong' ? 'border-success' : 'border-warning'}`;
+            div.innerHTML = `
+                <div class="card-body">
+                    <div class="d-flex justify-content-between">
+                        <h5 class="fw-bold">Bàn ${order.table}</h5>
+                        ${statusBadge}
+                    </div>
+                    <div class="mt-2 mb-2 text-muted" style="font-size:0.9rem">${itemDetails}</div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <strong>Tổng: ${parseInt(order.totalPrice).toLocaleString()}đ</strong>
+                        <button class="btn btn-primary btn-sm btn-nhap-kv">Đã nhập KiotViet</button>
+                    </div>
+                </div>`;
+            
+            div.querySelector('.btn-nhap-kv').addEventListener('click', () => {
+                if(confirm("Xác nhận đơn này đã nhập vào KiotViet?")) {
+                    // Cách 1: Xóa hẳn
+                    deleteOrder(order.key);
+                    // Cách 2: Nếu muốn lưu lịch sử thì dùng: updateOrderStatus(order.key, 'da_nhap_kv');
+                }
+            });
+            listContainer.appendChild(div);
+        });
+    });
 }
 
 function handleFileUpload(e) {
@@ -298,29 +357,16 @@ function handleFileUpload(e) {
         const workbook = XLSX.read(data, {type: 'array'});
         const sheetName = workbook.SheetNames[0];
         const json = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
-        
+
         const cleanData = json.map(item => ({
             id: item.ID, TenMon: item.TenMon, MoTa: item.MoTa || "", PhanLoai: item.PhanLoai || "TP",
             img: item.HinhAnh || "https://via.placeholder.com/100", hasMultiSize: !!item.Co2Size, 
             GiaM: item.GiaM || 0, VonM: item.VonM || 0, GiaL: item.GiaL || 0, VonL: item.VonL || 0
         }));
 
-        if(confirm(`Tìm thấy ${cleanData.length} món. Bạn có muốn cập nhật Menu không?`)) {
-            saveMenuToDB(cleanData)
-                .then(() => alert("Cập nhật thành công!"))
-                .catch(err => alert("Lỗi: " + err));
+        if(confirm(`Cập nhật ${cleanData.length} món?`)) {
+            saveMenuToDB(cleanData).then(() => alert("Xong! F5 lại web khách.")).catch(err => alert("Lỗi: " + err));
         }
     };
     reader.readAsArrayBuffer(file);
 }
-
-// --- QUAN TRỌNG: CÔNG KHAI HÀM RA WINDOW ĐỂ HTML GỌI ĐƯỢC ---
-window.addToCart = addToCart;
-window.removeRecentItem = removeRecentItem;
-window.openMultiSizeModal = openMultiSizeModal;
-window.closeModal = closeModal;
-window.updateModalQty = updateModalQty;
-window.updateOrderStatus = updateOrderStatus;
-window.finishOrder = finishOrder;
-window.handleFileUpload = handleFileUpload;
-// Bạn có thể thêm các hàm mở giỏ hàng chi tiết nếu cần ở đây
