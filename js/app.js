@@ -6,7 +6,7 @@ import { sendOrderToDB } from './firebase-service.js';
 // hasMultiSize: true (có 2 size - hiện popup), false (1 size - hiện cộng trừ)
 const MENU_DATA = [
     { id: 1, TenMon: "Trà sữa xoài", MoTa: "Thơm ngon mát lạnh", Gia: 35000, Von: 15000, PhanLoai: "TS", hasMultiSize: false, img: "https://via.placeholder.com/100" },
-    { id: 2, TenMon: "Trà sữa Mộc Hương", MoTa: "Đậm vị trà", Gia: 35000, Von: 10000, PhanLoai: "TS", hasMultiSize: true, img: "https://via.placeholder.com/100" }, // Món này có 2 size
+    { id: 2, TenMon: "Trà sữa Mộc Hương", MoTa: "Đậm vị trà", Gia: 35000, Von: 10000, PhanLoai: "TS", hasMultiSize: true, img: "https://ibb.co/k2nMZG0Q" }, // Món này có 2 size
     { id: 3, TenMon: "Trà sữa Kem trứng", MoTa: "Béo ngậy", Gia: 35000, Von: 12000, PhanLoai: "TS", hasMultiSize: false, img: "https://via.placeholder.com/100" },
     { id: 4, TenMon: "Cà phê đen", MoTa: "Đậm đà", Gia: 25000, Von: 5000, PhanLoai: "CF", hasMultiSize: false, img: "https://via.placeholder.com/100" },
     { id: 5, TenMon: "Hướng dương", MoTa: "Giòn tan", Gia: 15000, Von: 5000, PhanLoai: "AV", hasMultiSize: false, img: "https://via.placeholder.com/100" }
@@ -161,4 +161,5 @@ function updateBottomStatus() {
 // 6. Sự kiện bấm vào thanh dưới cùng (Mũi tên lên)
 window.openCartDetails = function() {
     alert("Sẽ mở màn hình chi tiết giỏ hàng (Thiết kế sau)");
+
 }
