@@ -6,10 +6,8 @@
     <title>Menu Quán</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-    
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -26,7 +24,7 @@
 
         <div class="bottom-area">
             <div class="category-scroll" id="category-list"></div>
-            
+
             <div class="cart-status-bar" onclick="openCartDetails()">
                 <div class="d-flex justify-content-between align-items-center w-100">
                     <div class="cart-info-box table-box">
@@ -35,29 +33,11 @@
                     <div class="cart-info-box count-box">
                         <small>SL</small><strong id="total-count">0</strong>
                     </div>
-                    <div class="cart-info-box text-end pe-3 flex-grow-1" style="border:none; background:transparent;">
-                        <small style="color:#ddd">Tạm tính</small><br>
-                        <strong class="text-warning" id="total-price" style="font-size:16px">0đ</strong>
+                    <div class="cart-info-box text-end pe-3 flex-grow-1">
+                        <small>Tạm tính</small><br><strong class="text-warning" id="total-price">0đ</strong>
                     </div>
                     <div class="arrow-box"><i class="fas fa-chevron-up"></i></div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <div id="cart-modal" class="modal-overlay hidden">
-        <div class="cart-modal-content">
-            <div class="cart-header">
-                <h5 class="fw-bold m-0"><i class="fas fa-list-ul"></i> Danh sách món</h5>
-                <button class="btn-close-custom" onclick="closeCartDetails()"><i class="fas fa-chevron-down"></i></button>
-            </div>
-            
-            <div class="cart-body" id="cart-items-list">
-                </div>
-
-            <div class="cart-footer">
-                <button class="btn btn-warning w-100 fw-bold py-3 mb-2" id="btn-order" onclick="submitOrder()">GỌI MÓN</button>
-                <button class="btn btn-primary w-100 fw-bold py-2" id="btn-pay" onclick="requestBill()" disabled>THANH TOÁN & XUẤT HĐ</button>
             </div>
         </div>
     </div>
@@ -87,19 +67,32 @@
         </div>
     </div>
 
+    <div id="cart-modal" class="modal-overlay hidden" style="align-items: flex-end;">
+        <div class="bg-white w-100 rounded-top-4 d-flex flex-column" style="height: 90vh;">
+            <div class="p-3 border-bottom d-flex justify-content-between align-items-center">
+                <h5 class="fw-bold m-0"><i class="fas fa-receipt"></i> Đơn của bạn</h5>
+                <button class="btn-close" onclick="closeCartDetails()"></button>
+            </div>
+            <div class="p-3 flex-grow-1 overflow-auto" id="cart-items-list" style="background: #f8f9fa;">
+                </div>
+            <div class="p-3 border-top bg-white">
+                <button class="btn btn-warning w-100 fw-bold py-3 mb-2 shadow-sm" id="btn-order" onclick="submitOrder()">GỌI MÓN</button>
+                <button class="btn btn-primary w-100 fw-bold py-2 shadow-sm" id="btn-pay" onclick="requestBill()">THANH TOÁN & XUẤT HĐ</button>
+            </div>
+        </div>
+    </div>
+
     <div id="bill-modal" class="modal-overlay hidden" style="z-index: 3000;">
-        <div style="background: white; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; border-radius: 10px;">
-            <div id="bill-content" class="p-4 bg-white text-dark"></div>
-            
+        <div class="bg-white rounded-3 shadow overflow-hidden" style="width: 360px; max-height: 90vh; display: flex; flex-direction: column;">
+            <div id="bill-content" class="p-4 bg-white text-dark overflow-auto">
+                </div>
             <div class="p-3 bg-light border-top d-flex gap-2">
                 <button class="btn btn-secondary flex-grow-1" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
-                <button class="btn btn-success flex-grow-1" onclick="downloadBill()">📸 Lưu ảnh HĐ</button>
-            </div>
-            
-            <div id="cashier-actions" class="p-3 bg-light border-top hidden">
-                <div class="d-grid gap-2">
-                    <button class="btn btn-primary fw-bold" onclick="cashierAction('kiotviet')">ĐÃ NHẬP KIOTVIET</button>
-                    <button class="btn btn-success fw-bold" onclick="cashierAction('paid')">ĐÃ THANH TOÁN</button>
+                <button id="btn-download-bill" class="btn btn-success flex-grow-1" onclick="downloadBill()">📸 Lưu ảnh</button>
+                
+                <div id="cashier-actions" class="hidden d-flex gap-1 w-100">
+                    <button class="btn btn-primary flex-grow-1" style="font-size: 12px;" onclick="finishTable('kv')">Đã Nhập KV</button>
+                    <button class="btn btn-success flex-grow-1" style="font-size: 12px;" onclick="finishTable('pay')">Đã Thanh Toán</button>
                 </div>
             </div>
         </div>
@@ -111,9 +104,9 @@
     </div>
 
     <div id="view-cashier" class="hidden container py-3">
-        <h4 class="text-center fw-bold mb-3 text-primary">QUẢN LÝ BÀN</h4>
-        <div id="cashier-upload-wrapper" class="text-end mb-3">
-             <label class="btn btn-sm btn-outline-dark"><i class="fas fa-file-excel"></i> Menu Excel <input type="file" id="cashier-upload-excel" hidden></label>
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold text-primary m-0">QUẢN LÝ BÀN</h4>
+            <label class="btn btn-sm btn-outline-dark"><i class="fas fa-file-excel"></i> Up Menu <input type="file" id="cashier-upload-excel" hidden></label>
         </div>
         <div class="row g-3" id="table-grid"></div>
     </div>
