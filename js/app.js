@@ -1,133 +1,164 @@
 // js/app.js
-import { sendOrderToDB, listenForOrders, updateOrderStatus, deleteOrder } from './firebase-service.js';
+import { sendOrderToDB } from './firebase-service.js';
 
-// --- CẤU HÌNH MENU (SỬA MÓN ĂN Ở ĐÂY) ---
+// --- CẤU TRÚC DỮ LIỆU TỪ EXCEL ---
+// PhanLoai: TS, THQ, SCL, NE, DUST, DXPK, CF, ST, KT, DUN, AV, TP
+// hasMultiSize: true (có 2 size - hiện popup), false (1 size - hiện cộng trừ)
 const MENU_DATA = [
-    { id: 1, name: "Cà phê đen", price: 20000, img: "☕" },
-    { id: 2, name: "Cà phê sữa", price: 25000, img: "🥛" },
-    { id: 3, name: "Bạc xỉu", price: 28000, img: "🧉" },
-    { id: 4, name: "Trà đào cam sả", price: 35000, img: "🍑" },
-    { id: 5, name: "Nước cam", price: 30000, img: "🍊" }
+    { id: 1, TenMon: "Trà sữa xoài", MoTa: "Thơm ngon mát lạnh", Gia: 35000, Von: 15000, PhanLoai: "TS", hasMultiSize: false, img: "https://via.placeholder.com/100" },
+    { id: 2, TenMon: "Trà sữa Mộc Hương", MoTa: "Đậm vị trà", Gia: 35000, Von: 10000, PhanLoai: "TS", hasMultiSize: true, img: "https://via.placeholder.com/100" }, // Món này có 2 size
+    { id: 3, TenMon: "Trà sữa Kem trứng", MoTa: "Béo ngậy", Gia: 35000, Von: 12000, PhanLoai: "TS", hasMultiSize: false, img: "https://via.placeholder.com/100" },
+    { id: 4, TenMon: "Cà phê đen", MoTa: "Đậm đà", Gia: 25000, Von: 5000, PhanLoai: "CF", hasMultiSize: false, img: "https://via.placeholder.com/100" },
+    { id: 5, TenMon: "Hướng dương", MoTa: "Giòn tan", Gia: 15000, Von: 5000, PhanLoai: "AV", hasMultiSize: false, img: "https://via.placeholder.com/100" }
 ];
 
-// --- KHỞI CHẠY ỨNG DỤNG ---
-document.addEventListener("DOMContentLoaded", () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const view = urlParams.get('view'); // Lấy tham số ?view=
-    const table = urlParams.get('ban') || "Mang Về";
+// Danh sách phân loại
+const CATEGORIES = [
+    { code: "ALL", name: "Tất cả" },
+    { code: "TS", name: "Trà sữa" },
+    { code: "THQ", name: "Trà hoa quả" },
+    { code: "SCL", name: "Sữa chua lắc" },
+    { code: "NE", name: "Nước ép" },
+    { code: "DUST", name: "Sữa tươi" },
+    { code: "DXPK", name: "Đá xay" },
+    { code: "CF", name: "Cà phê" },
+    { code: "ST", name: "Sinh tố" },
+    { code: "KT", name: "Kem tươi" },
+    { code: "DUN", name: "Đồ nóng" },
+    { code: "AV", name: "Ăn vặt" },
+    { code: "TP", name: "Topping" }
+];
 
-    if (view === 'bep') {
-        initKitchenView();
-    } else if (view === 'thungan') {
-        initCashierView();
-    } else {
-        initCustomerView(table);
-    }
+// Biến lưu giỏ hàng tạm thời trên máy khách: { id_mon: so_luong }
+let cart = {}; 
+let currentCategory = "ALL";
+let currentSearch = "";
+let tableNumber = "";
+
+document.addEventListener("DOMContentLoaded", () => {
+    // Lấy số bàn từ URL
+    const urlParams = new URLSearchParams(window.location.search);
+    tableNumber = urlParams.get('ban') || "Mang Về";
+    document.getElementById('display-table').innerText = tableNumber;
+
+    renderCategories();
+    renderMenu();
+
+    // Sự kiện tìm kiếm
+    document.getElementById('search-input').addEventListener('input', (e) => {
+        currentSearch = e.target.value.toLowerCase();
+        renderMenu();
+    });
 });
 
-// 1. LOGIC KHÁCH HÀNG
-function initCustomerView(tableName) {
-    document.getElementById('view-customer').classList.remove('hidden');
-    document.getElementById('table-number').innerText = `Bàn: ${tableName}`;
+// 1. Render Thanh Phân Loại
+function renderCategories() {
+    const catContainer = document.getElementById('category-list');
+    catContainer.innerHTML = "";
     
-    const menuContainer = document.getElementById('menu-list');
-    
-    MENU_DATA.forEach(item => {
+    CATEGORIES.forEach(cat => {
+        const btn = document.createElement('div');
+        btn.className = `cat-chip ${cat.code === currentCategory ? 'active' : ''}`;
+        btn.innerText = cat.name;
+        btn.onclick = () => {
+            currentCategory = cat.code;
+            renderCategories(); // Vẽ lại để cập nhật màu active
+            renderMenu();
+        };
+        catContainer.appendChild(btn);
+    });
+}
+
+// 2. Render Menu Chính
+function renderMenu() {
+    const container = document.getElementById('menu-container');
+    container.innerHTML = "";
+
+    // Lọc dữ liệu
+    const filteredData = MENU_DATA.filter(item => {
+        const matchCat = currentCategory === "ALL" || item.PhanLoai === currentCategory;
+        const matchSearch = item.TenMon.toLowerCase().includes(currentSearch);
+        return matchCat && matchSearch;
+    });
+
+    filteredData.forEach(item => {
+        const qty = cart[item.id] || 0; // Số lượng hiện tại trong giỏ
+
+        // Xác định giao diện nút bấm
+        let actionBtnHtml = "";
+        
+        if (item.hasMultiSize) {
+            // Trường hợp 1: Món có 2 size -> Luôn hiện nút "Thêm vào đơn" để mở Popup
+            actionBtnHtml = `<button class="btn-add-cart" onclick="openMultiSizeModal(${item.id})">Thêm vào đơn</button>`;
+        } else {
+            // Trường hợp 2: Món 1 size -> Hiện +/-
+            if (qty === 0) {
+                actionBtnHtml = `<button class="btn-add-cart" onclick="updateQty(${item.id}, 1)">Thêm vào đơn</button>`;
+            } else {
+                actionBtnHtml = `
+                    <div class="qty-control">
+                        <button class="qty-btn" onclick="updateQty(${item.id}, -1)">-</button>
+                        <span class="qty-num">${qty}</span>
+                        <button class="qty-btn" onclick="updateQty(${item.id}, 1)">+</button>
+                    </div>
+                `;
+            }
+        }
+
         const div = document.createElement('div');
-        div.className = 'col-6 col-md-4 col-lg-3 mb-3';
+        div.className = "container";
         div.innerHTML = `
-            <div class="card h-100 shadow-sm border-0">
-                <div class="card-body text-center p-2">
-                    <div class="display-4 mb-2">${item.img}</div>
-                    <h6 class="card-title fw-bold">${item.name}</h6>
-                    <p class="text-primary fw-bold">${item.price.toLocaleString()}đ</p>
-                    <button class="btn btn-dark w-100 btn-sm btn-order" data-id="${item.id}">Gọi món</button>
+            <div class="item-card">
+                <img src="${item.img}" class="item-img">
+                <div class="item-info">
+                    <div>
+                        <h5 class="item-title">${item.TenMon}</h5>
+                        <p class="item-desc">${item.MoTa}</p>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-end">
+                        <span class="item-price">${item.Gia.toLocaleString()} đ</span>
+                        ${actionBtnHtml}
+                    </div>
                 </div>
             </div>
         `;
-        menuContainer.appendChild(div);
-        
-        // Gán sự kiện click
-        div.querySelector('.btn-order').addEventListener('click', () => {
-            if(confirm(`Gọi món ${item.name} cho ${tableName}?`)) {
-                sendOrderToDB(tableName, item);
-                alert("Đã gửi order!");
-            }
-        });
+        container.appendChild(div);
     });
+
+    updateBottomStatus();
 }
 
-// 2. LOGIC BẾP
-function initKitchenView() {
-    document.getElementById('view-kitchen').classList.remove('hidden');
-    const listContainer = document.getElementById('kitchen-orders');
+// 3. Hàm Update số lượng (Cho món 1 size)
+window.updateQty = function(id, change) {
+    if (!cart[id]) cart[id] = 0;
+    cart[id] += change;
+    if (cart[id] <= 0) delete cart[id];
+    renderMenu(); // Vẽ lại để cập nhật nút bấm
+}
 
-    listenForOrders((orders) => {
-        listContainer.innerHTML = ''; // Xóa cũ vẽ mới
-        // Lọc chỉ lấy món chưa làm xong (status = 'moi')
-        const activeOrders = orders.filter(o => o.status === 'moi');
+// 4. Hàm xử lý món nhiều size (Chờ thiết kế sau)
+window.openMultiSizeModal = function(id) {
+    alert("Chức năng chọn size sẽ hiển thị ở màn hình thiết kế sau!");
+}
 
-        if (activeOrders.length === 0) {
-            listContainer.innerHTML = '<p class="text-center text-muted">Hiện chưa có món nào...</p>';
-            return;
+// 5. Cập nhật thanh trạng thái dưới cùng
+function updateBottomStatus() {
+    let totalCount = 0;
+    let totalPrice = 0;
+
+    for (const [id, qty] of Object.entries(cart)) {
+        const item = MENU_DATA.find(i => i.id == id);
+        if (item) {
+            totalCount += qty;
+            totalPrice += item.Gia * qty;
         }
+    }
 
-        activeOrders.forEach(order => {
-            const div = document.createElement('div');
-            div.className = 'alert alert-warning d-flex justify-content-between align-items-center shadow-sm';
-            div.innerHTML = `
-                <div>
-                    <span class="badge bg-dark mb-1">Bàn ${order.table}</span>
-                    <h4 class="mb-0 fw-bold">${order.item}</h4>
-                    <small class="text-muted">${new Date(order.timestamp).toLocaleTimeString()}</small>
-                </div>
-                <button class="btn btn-success btn-lg">Xong</button>
-            `;
-            // Nút Xong
-            div.querySelector('button').addEventListener('click', () => {
-                updateOrderStatus(order.key, 'xong');
-            });
-            listContainer.appendChild(div);
-        });
-    });
+    document.getElementById('total-count').innerText = totalCount;
+    document.getElementById('total-price').innerText = totalPrice.toLocaleString() + " đ";
 }
 
-// 3. LOGIC THU NGÂN
-function initCashierView() {
-    document.getElementById('view-cashier').classList.remove('hidden');
-    const listContainer = document.getElementById('cashier-orders');
-
-    listenForOrders((orders) => {
-        listContainer.innerHTML = '';
-        // Lọc lấy món 'moi' hoặc 'xong', loại bỏ món đã nhập kiotviet
-        const activeOrders = orders.filter(o => o.status !== 'da_nhap_kv');
-
-        activeOrders.forEach(order => {
-            const isDone = order.status === 'xong';
-            const div = document.createElement('div');
-            div.className = `card mb-2 ${isDone ? 'border-success' : 'border-warning'}`;
-            div.innerHTML = `
-                <div class="card-body d-flex justify-content-between align-items-center p-2">
-                    <div>
-                        <span class="fw-bold">Bàn ${order.table}</span>: ${order.item}
-                        <br>
-                        ${isDone 
-                            ? '<span class="badge bg-success">Bếp đã xong</span>' 
-                            : '<span class="badge bg-warning text-dark">Đang làm...</span>'}
-                    </div>
-                    <button class="btn btn-outline-primary btn-sm">Đã nhập KiotViet</button>
-                </div>
-            `;
-            
-            // Nút xác nhận nhập KiotViet
-            div.querySelector('button').addEventListener('click', () => {
-                if(confirm("Xác nhận đã nhập món này vào KiotViet?")) {
-                    // Cách 1: Xóa luôn (Sạch data)
-                    deleteOrder(order.key);
-                    // Cách 2: updateOrderStatus(order.key, 'da_nhap_kv'); (Lưu vết)
-                }
-            });
-            listContainer.appendChild(div);
-        });
-    });
+// 6. Sự kiện bấm vào thanh dưới cùng (Mũi tên lên)
+window.openCartDetails = function() {
+    alert("Sẽ mở màn hình chi tiết giỏ hàng (Thiết kế sau)");
 }
