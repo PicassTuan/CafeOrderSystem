@@ -7,45 +7,75 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
-    <div class="top-search-bar">
-        <div class="input-group">
-            <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
-            <input type="text" id="search-input" class="form-control border-start-0 ps-0" placeholder="Nhập tên món để tìm...">
+    <div id="view-customer" class="hidden">
+        <div class="top-search-bar">
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0"><i class="fas fa-search text-muted"></i></span>
+                <input type="text" id="search-input" class="form-control border-start-0 ps-0" placeholder="Nhập tên món...">
+            </div>
+        </div>
+
+        <div class="container" id="menu-container" style="margin-top: 10px;">
+            </div>
+
+        <div class="bottom-area">
+            <div class="cart-status-bar">
+                <div class="d-flex justify-content-between align-items-center w-100">
+                    <div class="cart-info-box table-box">
+                        <small>Bàn</small><strong id="display-table">--</strong>
+                    </div>
+                    <div class="cart-info-box count-box">
+                        <small>SL</small><strong id="total-count">0</strong>
+                    </div>
+                    <div class="cart-info-box text-end pe-3 flex-grow-1">
+                        <small>Tạm tính</small><br><strong class="text-warning" id="total-price">0đ</strong>
+                    </div>
+                    <div class="arrow-box"><i class="fas fa-chevron-up"></i></div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div class="main-content" id="menu-container">
-        </div>
-
-    <div class="bottom-area">
-        <div class="category-scroll" id="category-list">
+    <div id="size-modal" class="modal-overlay hidden">
+        <div class="modal-content-blue">
+            <div class="modal-item-info">
+                <img id="modal-img" src="" class="modal-thumb">
+                <div class="text-white">
+                    <h5 id="modal-title" class="fw-bold mb-1">Tên Món</h5>
+                    <small id="modal-desc">Mô tả</small>
+                </div>
+                <button class="btn-close-modal" onclick="closeModal()">×</button>
             </div>
-
-        <div class="cart-status-bar" onclick="openCartDetails()">
-            <div class="d-flex justify-content-between align-items-center w-100">
-                <div class="cart-info-box table-box">
-                    <small>Bàn</small>
-                    <strong id="display-table">--</strong>
+            <div class="size-row">
+                <span class="size-label">SIZE M</span>
+                <div class="qty-control-blue">
+                    <button onclick="updateModalQty('M', -1)">-</button>
+                    <span id="qty-M">0</span>
+                    <button onclick="updateModalQty('M', 1)">+</button>
                 </div>
-                
-                <div class="cart-info-box count-box">
-                    <small>Số lượng</small>
-                    <strong id="total-count">0</strong>
-                </div>
-
-                <div class="cart-info-box price-box flex-grow-1 text-end pe-3">
-                    <small>Tạm tính</small><br>
-                    <strong class="text-warning" id="total-price">0đ</strong>
-                </div>
-
-                <div class="arrow-box">
-                    <i class="fas fa-chevron-up"></i>
+            </div>
+            <div class="size-row mt-3">
+                <span class="size-label">SIZE L</span>
+                <div class="qty-control-blue">
+                    <button onclick="updateModalQty('L', -1)">-</button>
+                    <span id="qty-L">0</span>
+                    <button onclick="updateModalQty('L', 1)">+</button>
                 </div>
             </div>
         </div>
+    </div>
+
+    <div id="view-kitchen" class="hidden">
+        <h2 class="text-center text-white mb-4 fw-bold">🔥 BẾP - ĐƠN CẦN LÀM</h2>
+        <div id="kitchen-orders"></div>
+    </div>
+
+    <div id="view-cashier" class="hidden container py-3">
+        <div id="cashier-orders"></div>
     </div>
 
     <script type="module" src="js/app.js"></script>
