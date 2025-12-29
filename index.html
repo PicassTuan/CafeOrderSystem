@@ -6,7 +6,10 @@
     <title>Menu Quán</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -19,13 +22,12 @@
             </div>
         </div>
 
-        <div class="container" id="menu-container" style="margin-top: 10px;">
-            </div>
+        <div class="container" id="menu-container" style="margin-top: 10px;"></div>
 
         <div class="bottom-area">
             <div class="category-scroll" id="category-list"></div>
-
-            <div class="cart-status-bar">
+            
+            <div class="cart-status-bar" onclick="openCartDetails()">
                 <div class="d-flex justify-content-between align-items-center w-100">
                     <div class="cart-info-box table-box">
                         <small>Bàn</small><strong id="display-table">--</strong>
@@ -33,11 +35,29 @@
                     <div class="cart-info-box count-box">
                         <small>SL</small><strong id="total-count">0</strong>
                     </div>
-                    <div class="cart-info-box text-end pe-3 flex-grow-1">
-                        <small>Tạm tính</small><br><strong class="text-warning" id="total-price">0đ</strong>
+                    <div class="cart-info-box text-end pe-3 flex-grow-1" style="border:none; background:transparent;">
+                        <small style="color:#ddd">Tạm tính</small><br>
+                        <strong class="text-warning" id="total-price" style="font-size:16px">0đ</strong>
                     </div>
                     <div class="arrow-box"><i class="fas fa-chevron-up"></i></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="cart-modal" class="modal-overlay hidden">
+        <div class="cart-modal-content">
+            <div class="cart-header">
+                <h5 class="fw-bold m-0"><i class="fas fa-list-ul"></i> Danh sách món</h5>
+                <button class="btn-close-custom" onclick="closeCartDetails()"><i class="fas fa-chevron-down"></i></button>
+            </div>
+            
+            <div class="cart-body" id="cart-items-list">
+                </div>
+
+            <div class="cart-footer">
+                <button class="btn btn-warning w-100 fw-bold py-3 mb-2" id="btn-order" onclick="submitOrder()">GỌI MÓN</button>
+                <button class="btn btn-primary w-100 fw-bold py-2" id="btn-pay" onclick="requestBill()" disabled>THANH TOÁN & XUẤT HĐ</button>
             </div>
         </div>
     </div>
@@ -47,37 +67,55 @@
             <div class="modal-item-info">
                 <img id="modal-img" src="" class="modal-thumb">
                 <div class="text-white">
-                    <h5 id="modal-title" class="fw-bold mb-1">Tên Món</h5>
-                    <small id="modal-desc">Mô tả</small>
+                    <h5 id="modal-title" class="fw-bold mb-1"></h5>
+                    <small id="modal-desc"></small>
                 </div>
                 <button class="btn-close-modal" onclick="closeModal()">×</button>
             </div>
             <div class="size-row">
                 <span class="size-label">SIZE M</span>
                 <div class="qty-control-blue">
-                    <button onclick="updateModalQty('M', -1)">-</button>
-                    <span id="qty-M">0</span>
-                    <button onclick="updateModalQty('M', 1)">+</button>
+                    <button onclick="updateModalQty('M', -1)">-</button><span id="qty-M">0</span><button onclick="updateModalQty('M', 1)">+</button>
                 </div>
             </div>
             <div class="size-row mt-3">
                 <span class="size-label">SIZE L</span>
                 <div class="qty-control-blue">
-                    <button onclick="updateModalQty('L', -1)">-</button>
-                    <span id="qty-L">0</span>
-                    <button onclick="updateModalQty('L', 1)">+</button>
+                    <button onclick="updateModalQty('L', -1)">-</button><span id="qty-L">0</span><button onclick="updateModalQty('L', 1)">+</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="bill-modal" class="modal-overlay hidden" style="z-index: 3000;">
+        <div style="background: white; width: 100%; max-width: 380px; max-height: 90vh; overflow-y: auto; border-radius: 10px;">
+            <div id="bill-content" class="p-4 bg-white text-dark"></div>
+            
+            <div class="p-3 bg-light border-top d-flex gap-2">
+                <button class="btn btn-secondary flex-grow-1" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
+                <button class="btn btn-success flex-grow-1" onclick="downloadBill()">📸 Lưu ảnh HĐ</button>
+            </div>
+            
+            <div id="cashier-actions" class="p-3 bg-light border-top hidden">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-primary fw-bold" onclick="cashierAction('kiotviet')">ĐÃ NHẬP KIOTVIET</button>
+                    <button class="btn btn-success fw-bold" onclick="cashierAction('paid')">ĐÃ THANH TOÁN</button>
                 </div>
             </div>
         </div>
     </div>
 
     <div id="view-kitchen" class="hidden">
-        <h2 class="text-center text-white mb-4 fw-bold">🔥 BẾP - ĐƠN CẦN LÀM</h2>
+        <h2 class="text-center text-white mb-4 fw-bold pt-3">🔥 BẾP - ĐƠN CẦN LÀM</h2>
         <div id="kitchen-orders"></div>
     </div>
 
     <div id="view-cashier" class="hidden container py-3">
-        <div id="cashier-orders"></div>
+        <h4 class="text-center fw-bold mb-3 text-primary">QUẢN LÝ BÀN</h4>
+        <div id="cashier-upload-wrapper" class="text-end mb-3">
+             <label class="btn btn-sm btn-outline-dark"><i class="fas fa-file-excel"></i> Menu Excel <input type="file" id="cashier-upload-excel" hidden></label>
+        </div>
+        <div class="row g-3" id="table-grid"></div>
     </div>
 
     <script type="module" src="js/app.js"></script>
