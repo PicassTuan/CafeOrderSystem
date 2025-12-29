@@ -6,15 +6,12 @@ import { firebaseConfig } from './config.js';
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 
-// Xuất các hàm gốc của Firebase để app.js dùng trực tiếp nếu cần
-export { push, ref, set, update, remove, db };
-
-// 1. Gửi Menu lên (Upload Excel)
+// Gửi menu lên Firebase (Dùng cho upload Excel)
 export function saveMenuToDB(menuData) {
     return set(ref(db, 'menu'), menuData);
 }
 
-// 2. Lắng nghe Menu
+// Lắng nghe Menu thay đổi
 export function listenForMenu(callback) {
     onValue(ref(db, 'menu'), (snapshot) => {
         const data = snapshot.val();
@@ -22,37 +19,34 @@ export function listenForMenu(callback) {
     });
 }
 
-// 3. Gửi Order
+// Gửi Order mới
 export function sendOrderToDB(tableName, orderItems, totalCost, totalPrice) {
-    // Tự động thêm status 'moi' nếu không truyền vào
     push(ref(db, 'orders'), {
         table: tableName,
-        items: orderItems,
-        totalPrice: totalPrice,
-        totalCost: totalCost,
+        items: orderItems, // Mảng các món
+        totalPrice: totalPrice, // Doanh thu
+        totalCost: totalCost,   // Giá vốn (để tính lãi sau này)
         status: 'moi', 
         timestamp: Date.now()
     });
 }
 
-// 4. Lắng nghe Order (Realtime)
+// Lắng nghe Order (Cho Bếp & Thu Ngân)
 export function listenForOrders(callback) {
     onValue(ref(db, 'orders'), (snapshot) => {
         const data = snapshot.val();
-        // Chuyển object thành array
         const orders = data ? Object.entries(data).map(([key, val]) => ({key, ...val})) : [];
-        // Sắp xếp mới nhất lên đầu (hoặc cũ nhất lên đầu tùy bạn)
         orders.sort((a, b) => a.timestamp - b.timestamp);
         callback(orders);
     });
 }
 
-// 5. Cập nhật trạng thái
+// Cập nhật trạng thái (Xong/Đã nhập KV)
 export function updateOrderStatus(key, newStatus) {
     update(ref(db, 'orders/' + key), { status: newStatus });
 }
 
-// 6. Xóa Order
+// Xóa Order
 export function deleteOrder(key) {
     remove(ref(db, 'orders/' + key));
 }

@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>NACA Coffee</title>
+    <title>NACA Coffee & Tea</title>
+    
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
+    
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -24,17 +27,17 @@
 
         <div class="bottom-area">
             <div class="category-scroll" id="category-list"></div>
+            
             <div class="cart-status-bar" onclick="openCartDetails()">
                 <div class="d-flex justify-content-between align-items-center w-100">
-                    <div class="cart-info-box">
+                    <div class="cart-info-box table-box">
                         <small>Bàn</small><strong id="display-table">--</strong>
                     </div>
-                    <div class="cart-info-box">
-                        <small>Số lượng</small><strong id="total-count">0</strong>
+                    <div class="cart-info-box count-box">
+                        <small>SL</small><strong id="total-count">0</strong>
                     </div>
-                    <div class="text-end flex-grow-1 pe-3">
-                        <small style="opacity:0.8">Tạm tính</small><br>
-                        <strong class="text-warning" style="font-size:16px" id="total-price">0đ</strong>
+                    <div class="cart-info-box flex-grow-1 text-end pe-3">
+                        <small>Tạm tính</small><br><strong class="text-warning" id="total-price">0đ</strong>
                     </div>
                     <div class="arrow-box"><i class="fas fa-chevron-up"></i></div>
                 </div>
@@ -45,59 +48,57 @@
     <div id="cart-modal" class="modal-overlay hidden">
         <div class="cart-modal-content">
             <div class="cart-header">
-                <span class="fs-5 fw-bold"><i class="fas fa-receipt"></i> Đơn của bạn</span>
+                <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-secondary rounded-pill p-2" id="cart-table-num">Bàn --</span>
+                    <span class="fs-5 fw-bold" id="cart-total-top">0đ</span>
+                </div>
                 <button class="btn-close-custom" onclick="closeCartDetails()"><i class="fas fa-chevron-down"></i></button>
             </div>
+
             <div class="cart-body" id="cart-items-list">
                 </div>
-            <div class="p-3 bg-white border-top">
+
+            <div class="cart-footer">
                 <button class="btn btn-dark w-100 btn-lg mb-2" id="btn-send-order" onclick="submitOrder()">GỌI MÓN</button>
+                
                 <div class="row g-2">
-                    <div class="col-4"><button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-bill" disabled onclick="requestBill()">Xuất HĐ</button></div>
-                    <div class="col-4"><button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-split" disabled onclick="openSplitBillModal()">TT Riêng</button></div>
-                    <div class="col-4"><button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-pay" disabled onclick="requestBill()">Thanh Toán</button></div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-bill" disabled onclick="requestBill()">Xuất HĐ</button>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-split" disabled>TT Riêng</button>
+                    </div>
+                    <div class="col-4">
+                        <button class="btn btn-outline-secondary w-100 btn-sm disabled-action" id="btn-pay" disabled onclick="requestBill()">Thanh Toán</button>
+                    </div>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="split-modal" class="modal-overlay hidden" style="z-index: 2500;">
-        <div class="modal-center-content">
-            <div class="p-3 border-bottom bg-light d-flex justify-content-between">
-                <h5 class="m-0 fw-bold">Chọn món thanh toán</h5>
-                <button class="btn-close" onclick="document.getElementById('split-modal').classList.add('hidden')"></button>
+    <div id="size-modal" class="modal-overlay hidden">
+        <div class="modal-content-blue"> <div class="modal-item-info">
+                <img id="modal-img" src="" class="modal-thumb">
+                <div class="text-white">
+                    <h5 id="modal-title" class="fw-bold mb-1">Tên Món</h5>
+                    <small id="modal-desc">Mô tả</small>
+                </div>
+                <button class="btn-close-modal" onclick="closeModal()">×</button>
             </div>
-            <div class="p-3" style="max-height: 300px; overflow-y: auto;" id="split-items-list">
+            <div class="size-row">
+                <span class="size-label">SIZE M</span>
+                <div class="qty-control-simple">
+                    <button onclick="updateModalQty('M', -1)">-</button>
+                    <span id="qty-M">0</span>
+                    <button onclick="updateModalQty('M', 1)">+</button>
                 </div>
-            <div class="p-3 border-top">
-                <div class="d-flex justify-content-between mb-2 fw-bold">
-                    <span>Tổng chọn:</span> <span id="split-total">0đ</span>
-                </div>
-                <button class="btn btn-primary w-100" onclick="proceedSplitPayment()">Tiếp tục</button>
             </div>
-        </div>
-    </div>
-
-    <div id="payment-method-modal" class="modal-overlay hidden" style="z-index: 2600;">
-        <div class="modal-center-content">
-            <div class="p-3 text-center">
-                <h5 class="fw-bold mb-3">Thanh toán: <span id="pay-amount" class="text-primary"></span></h5>
-                <div class="d-grid gap-2">
-                    <button class="btn btn-outline-primary p-3" onclick="showQR()">
-                        <i class="fas fa-qrcode fa-2x mb-2"></i><br>Chuyển khoản (QR)
-                    </button>
-                    <button class="btn btn-outline-success p-3" onclick="showCashInstruction()">
-                        <i class="fas fa-money-bill-wave fa-2x mb-2"></i><br>Tiền mặt
-                    </button>
-                </div>
-                <div id="qr-display" class="hidden mt-3 text-center">
-                    <img id="qr-img" src="" style="width: 150px; height: 150px; object-fit: contain;">
-                    <p class="small text-muted mt-2 mb-1" id="qr-desc">ND: Bàn X</p>
-                    <button class="btn btn-success w-100 btn-sm" onclick="confirmTransfer()">Đã chuyển khoản</button>
-                </div>
-                <div id="cash-display" class="hidden mt-3 text-center">
-                    <div class="alert alert-warning">Vui lòng đến quầy thu ngân để thanh toán tiền mặt. Xin cảm ơn!</div>
-                    <button class="btn btn-secondary w-100 btn-sm" onclick="closePaymentModal()">Đóng</button>
+            <div class="size-row mt-3">
+                <span class="size-label">SIZE L</span>
+                <div class="qty-control-simple">
+                    <button onclick="updateModalQty('L', -1)">-</button>
+                    <span id="qty-L">0</span>
+                    <button onclick="updateModalQty('L', 1)">+</button>
                 </div>
             </div>
         </div>
@@ -105,52 +106,32 @@
 
     <div id="view-kitchen" class="hidden">
         <h3 class="text-white text-center py-3 border-bottom border-secondary">👨‍🍳 BẾP - DANH SÁCH MÓN</h3>
-        <div id="kitchen-orders"></div>
+        <div id="kitchen-orders" class="p-2"></div>
     </div>
 
     <div id="view-cashier" class="hidden">
         <div class="d-flex justify-content-between align-items-center p-3 bg-white shadow-sm mb-3">
-            <h5 class="m-0 fw-bold text-dark">THU NGÂN (Bàn có khách)</h5>
-            <label class="btn btn-dark btn-sm"><i class="fas fa-upload"></i> Menu <input type="file" id="cashier-upload-excel" hidden></label>
+            <h5 class="m-0 fw-bold text-dark">THU NGÂN</h5>
+            <label class="btn btn-dark btn-sm">
+                <i class="fas fa-upload"></i> Menu
+                <input type="file" id="cashier-upload-excel" accept=".xlsx, .xls" hidden>
+            </label>
         </div>
+        
         <div class="container">
-            <div class="row g-3" id="table-grid"></div>
+            <h6 class="text-muted mb-3">SƠ ĐỒ BÀN (Ấn vào để xem hóa đơn)</h6>
+            <div class="row g-3" id="table-grid">
+                </div>
         </div>
     </div>
 
     <div id="bill-modal" class="modal-overlay hidden" style="z-index: 3000;">
-        <div class="bg-white p-0 rounded shadow-lg" style="width: 350px;">
-            <div id="bill-content" class="p-4 bg-white"></div>
+        <div class="bg-white p-0 rounded shadow-lg" style="width: 350px; overflow: hidden;">
+            <div id="bill-content" class="p-4 bg-white">
+                </div>
             <div class="p-3 bg-light d-flex justify-content-between">
                 <button class="btn btn-secondary btn-sm" onclick="document.getElementById('bill-modal').classList.add('hidden')">Đóng</button>
                 <button class="btn btn-primary btn-sm" onclick="downloadBill()">📸 Lưu ảnh</button>
-            </div>
-        </div>
-    </div>
-
-    <div id="size-modal" class="modal-overlay hidden">
-        <div class="modal-center-content bg-primary text-white">
-            <div class="p-3 d-flex gap-3 align-items-center border-bottom border-secondary">
-                <img id="modal-img" src="" style="width:60px; height:60px; border-radius:8px; object-fit:cover;">
-                <div>
-                    <h5 id="modal-title" class="fw-bold mb-0"></h5>
-                    <small id="modal-desc" class="opacity-75"></small>
-                </div>
-                <button class="btn-close btn-close-white ms-auto" onclick="document.getElementById('size-modal').classList.add('hidden')"></button>
-            </div>
-            <div class="p-3">
-                <div class="d-flex justify-content-between align-items-center mb-3 p-2 bg-white bg-opacity-10 rounded">
-                    <span class="fs-5 fw-bold">SIZE M</span>
-                    <div class="qty-control-inline bg-white text-dark">
-                        <button onclick="updateModalQty('M', -1)">-</button><span id="qty-M">0</span><button onclick="updateModalQty('M', 1)">+</button>
-                    </div>
-                </div>
-                <div class="d-flex justify-content-between align-items-center p-2 bg-white bg-opacity-10 rounded">
-                    <span class="fs-5 fw-bold">SIZE L</span>
-                    <div class="qty-control-inline bg-white text-dark">
-                        <button onclick="updateModalQty('L', -1)">-</button><span id="qty-L">0</span><button onclick="updateModalQty('L', 1)">+</button>
-                    </div>
-                </div>
             </div>
         </div>
     </div>
